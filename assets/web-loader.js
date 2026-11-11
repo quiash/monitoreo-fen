@@ -41,7 +41,7 @@ function renderSourceStatus(data){
  const head=document.createElement('h3');head.textContent='Estado de actualización';host.appendChild(head);
  for(const [key,name] of Object.entries(names)){
   const value=status?.sources?.[key]||{},p=document.createElement('p');
-  const state=value.state==='error'?'Último intento fallido; versión anterior conservada':(value.state==='partial'||key==='ana'&&Number.isFinite(value.updatedStates)&&value.updatedStates<data.ana.length)?'Actualización parcial; se conservan registros sin respuesta':value.state==='manual'?'Catálogo de referencia':'Consulta automática';
+  const state=value.state==='error'?'Último intento fallido; versión anterior conservada':(value.state==='partial'||key==='ana'&&Number.isFinite(value.updatedStates)&&value.updatedStates<data.ana.length)?'Actualización parcial; se conservan registros sin respuesta':value.state==='manual'?'Catálogo de referencia':value.state==='ok'?'Consulta automática completada':'Pendiente de consulta automática';
   p.textContent=name+' · '+format(value.cut||fallback[key])+' · '+state+'.';host.appendChild(p);
  }
  if(status?.checkedAt){const p=document.createElement('p');p.textContent='Última comprobación: '+new Date(status.checkedAt).toLocaleString('es-PE',{timeZone:'America/Lima'})+' · hora Perú.';host.appendChild(p);}
