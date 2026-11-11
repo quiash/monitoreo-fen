@@ -1,0 +1,43 @@
+{
+  "schema": "fen-site/v1",
+  "snapshotDate": "2026-11-09",
+  "payloadCharacters": 35865644,
+  "payloadSha256": "d2be3727baa40f1443960044f68f5c24d7260c81630f8cca332771c91bed2f0e",
+  "parts": [
+    "data/base-000.txt",
+    "data/base-001.txt",
+    "data/base-002.txt",
+    "data/base-003.txt",
+    "data/base-004.txt",
+    "data/base-005.txt",
+    "data/base-006.txt",
+    "data/base-007.txt",
+    "data/base-008.txt",
+    "data/base-009.txt",
+    "data/base-010.txt",
+    "data/base-011.txt",
+    "data/base-012.txt",
+    "data/base-013.txt",
+    "data/base-014.txt",
+    "data/base-015.txt",
+    "data/base-016.txt",
+    "data/base-017.txt",
+    "data/base-018.txt",
+    "data/base-019.txt",
+    "data/base-020.txt",
+    "data/base-021.txt",
+    "data/base-022.txt",
+    "data/base-023.txt"
+  ],
+  "reference": "data/reference.json",
+  "assets": [
+    "assets/site.css",
+    "assets/web-loader.js",
+    "assets/rain-inflate.js",
+    "assets/leaflet.js",
+    "assets/maplibre.js",
+    "assets/engine.js",
+    "assets/config.js",
+    "assets/app.js"
+  ]
+}
