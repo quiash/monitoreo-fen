@@ -222,7 +222,7 @@ def rain_surface(raw, palette):
 
 
 def update_rain(data, today):
-    published = rain_dates(fetch(RAIN_PAGE).decode())
+    published = rain_dates(fetch(RAIN_PAGE, timeout=15, retries=2).decode())
     days = []
     for rank, observation in sorted(published.items()):
         end = (dt.date.fromisoformat(observation)+dt.timedelta(days=1)).isoformat()
@@ -263,6 +263,8 @@ def parse_hydro(html):
     return obj
 
 def update_hydro(data, today):
+    # Check the official host once before opening 160 station requests.
+    fetch('https://www.senamhi.gob.pe/mapas/mapa-monitoreohidro/js/mnt-grafica-new.js', timeout=10, retries=1)
     tasks=[]
     for ident, station in data['hydroHistory']['byStation'].items():
         for kind in ['caudal','level']:
