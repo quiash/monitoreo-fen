@@ -1,7 +1,7 @@
 """Check merged live data, historical preservation and published source dates."""
-from refresh_data import ROOT, load_base, load_live, merge_patch
+from refresh_data import ROOT, load_base, load_live, hydrate
 import json
-base=load_base(); data=merge_patch(base,load_live())
+base=load_base(); data=hydrate(base,load_live())
 assert len(data['ana'])==536
 assert len({r['id'] for r in data['ana']})==536
 assert len(data['additional'])==94 and len(data['barriers'])==12
@@ -10,6 +10,7 @@ assert set(base['rainHistory']) <= set(data['rainHistory'])
 assert data['meta']['mapEndDate'] >= data['meta']['coenDate']
 for point in data['ana']:
     assert point['paths'], point['id']
+    assert set(data['meta']['anaCuts']) <= set(point['history']) | {data['meta']['anaDate'], data['meta']['anaPreviousDate']}, point['id']
     for group in point.get('diary',[]):
         assert len({r['date'] for r in group['rows']})==len(group['rows']), (point['id'],group['key'])
 status=json.loads((ROOT/'data/status.json').read_text())

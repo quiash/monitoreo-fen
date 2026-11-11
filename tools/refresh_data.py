@@ -34,17 +34,17 @@ def code(value):
     match = re.search(r'\d{4}20\d{2}ANA.*', value)
     return match[0] if match else value
 
-def fetch(url, form=None, timeout=45):
+def fetch(url, form=None, timeout=45, retries=3):
     data = urlencode(form).encode() if form is not None else None
     headers = {'User-Agent': 'MonitoreoFEN/1.0 (+https://github.com/quiash/monitoreo-fen)', 'Accept': '*/*'}
-    for attempt in range(3):
+    for attempt in range(retries):
         try:
             with urlopen(Request(url, data=data, headers=headers), timeout=timeout) as response:
                 content = response.read(60_000_001)
             if len(content) > 60_000_000: raise ValueError('Respuesta demasiado grande')
             return content
         except Exception:
-            if attempt == 2: raise
+            if attempt == retries-1: raise
             time.sleep(2 ** attempt)
 
 def get_json(url): return json.loads(fetch(url))
@@ -67,6 +67,15 @@ def difference(old, new):
         return {key: difference(old.get(key), value) for key, value in new.items() if key not in old or value != old[key]}
     return new
 
+def hydrate(base, patch):
+    data = merge_patch(base, patch)
+    original = {point['id']: point for point in base['ana']}
+    for point in data['ana']:
+        old = original.get(point['id'])
+        if old:
+            point['history'] = {**old.get('history', {}), base['meta']['anaDate']: old['current'], base['meta']['anaPreviousDate']: old['previous'], **point.get('history', {})}
+    return data
+
 def load_base(root=ROOT):
     manifest = json.loads((root/'data/manifest.json').read_text())
     payload = ''.join((root/name).read_text() for name in manifest['parts'])
@@ -81,7 +90,7 @@ def load_live(root=ROOT):
     return unpack(obj['data'])
 
 def update_coen(data, today):
-    raw = get_json(COEN)
+    raw = json.loads(fetch(COEN, timeout=20, retries=2))
     if raw.get('type') != 'FeatureCollection' or not raw.get('features'): raise ValueError('COEN vacío o sin GeoJSON válido')
     existing = {str(row['id']): row for row in data['events']}
     changed = 0
@@ -127,6 +136,12 @@ def update_ana(data, today):
     matched = current_legal = previous_only = updated = 0; excluded = []; matched_dates = []
     fields = {'META':'META_KM','AVANCEKM':'TOTAL_AVANCE_KM','AVANCEKMPOR':'TOTAL_PCT_AVANCE_KM','VOLUMEN_M3':'META_M3','AVANCEDESCOLMA':'TOTAL_AVANCE_M3','AVANCEDESCOLMAPOR':'TOTAL_PCT_AVANCE_M3','POB':'HABITANTES','VIVIENDAS':'VIVIENDA','CULTIVO':'AREA_CULTIVO'}
     for point in data['ana']:
+        point.setdefault('history', {}).setdefault(data['meta']['anaDate'], copy.deepcopy(point['current']))
+        point['history'].setdefault(data['meta']['anaPreviousDate'], copy.deepcopy(point['previous']))
+        previous_cut = max((cut for cut in point['history'] if cut < today), default=data['meta']['anaDate'])
+        point['previous'] = point['history'][previous_cut]
+        point.setdefault('currentSourceDate', data['meta']['anaDate'])
+        point['history'][today] = point['current']
         key = code(point['current']['CODIGO'])
         if len(catalog[key]) != 1: continue
         legal = norm(point['current'].get('DECRETO'))
@@ -141,7 +156,7 @@ def update_ana(data, today):
             point.setdefault('history', {}).setdefault(data['meta']['anaDate'], before)
             previous_cut = max((cut for cut in point['history'] if cut < today), default=data['meta']['anaDate'])
             point['previous'] = point['history'][previous_cut]
-            point['current'] = after; point['history'][today] = after; updated += 1
+            point['current'] = after; point['currentSourceDate'] = today; point['history'][today] = after; updated += 1
         rows = grouped.get(key, [])
         if not rows: continue
         groups = {}; matched += 1
@@ -165,13 +180,14 @@ def update_ana(data, today):
                 groups[old_group['key']]['rows'].sort(key=lambda r:r['date'])
         point['diary'] = list(groups.values())
         matching = [g for g in groups.values() if g['matchesCurrentLegal']]
-        point['diaryCurrentKey'] = max(matching, key=lambda g:(str(g['period']),g['rows'][-1]['date'] if g['rows'] else ''))['key'] if matching else None
+        point['diaryCurrentKey'] = max(matching, key=lambda g:(g['rows'][-1]['date'] if g['rows'] else '',number(g['period']) or -1))['key'] if matching else None
         current_legal += bool(matching); previous_only += not bool(matching)
     if matched < 250 or updated < 250: raise ValueError(f'Vinculación ANA insuficiente: {matched} diarios, {updated} estados')
     diary = data['anaDiary']
     diary.update(sourceFilename='API_ANA_avancediario_'+today+'.json',sourceDate=today,queryTimestamp=daily_raw.get('timestamp'),sourceRowCount=len(daily),matchedPoints=matched,currentLegalPoints=current_legal,unmatchedPoints=len(data['ana'])-matched,previousOnlyPoints=previous_only,futureExcluded=excluded,originalGzip=pack(daily_raw))
+    diary.setdefault('snapshots', {})[today] = {'filename':diary['sourceFilename'],'timestamp':daily_raw.get('timestamp'),'originalGzip':diary['originalGzip']}
     data['meta'].update(anaPreviousDate=max((cut for cut in data['meta']['anaCuts'] if cut < today), default=data['meta']['anaDate']),anaDate=today,anaCuts=sorted(set(data['meta']['anaCuts']+[today]),reverse=True))
-    return {'cut':today,'records':len(daily),'matched':matched,'updatedStates':updated,'latestObservation':max(matched_dates),'url':ANA+'avancediario'}
+    return {'cut':today,'records':len(daily),'matched':matched,'updatedStates':updated,'partial':updated<len(data['ana']),'latestObservation':max(matched_dates),'url':ANA+'avancediario'}
 
 
 def rain_dates(page):
@@ -255,7 +271,7 @@ def update_hydro(data, today):
         ident,kind=task
         form={'id':ident,'fecha_hora':today+' 23:59:00','rbtVariable':'CAUDAL' if kind=='caudal' else 'NIVEL','variable_opcion':'C' if kind=='caudal' else 'N','btnTipo':'D'}
         try:
-            raw=parse_hydro(fetch(HYDRO,form,timeout=30).decode())
+            raw=parse_hydro(fetch(HYDRO,form,timeout=18,retries=1).decode())
             if str(raw['codEstacion'])!=ident or raw['variable']!=form['rbtVariable']: raise ValueError('Estación o variable distinta')
             unit=raw['unidad']; expected=data['hydroHistory']['byStation'][ident][kind]['unit']
             if norm(unit)!=norm(expected): raise ValueError('Cambio de unidad: requiere revisión')
@@ -286,8 +302,18 @@ def update_hydro(data, today):
 def atomic_json(path, obj):
     temp=path.with_suffix(path.suffix+'.tmp');temp.write_text(dumps(obj)+'\n');temp.replace(path)
 
+def persist_data(base, data, status, root):
+    for name,cut in [('barriers',data['meta']['barrierDate']),('additional','2026-11-05')]:
+        status['sources'].setdefault(name,{'state':'manual','cut':cut,'note':'Catálogo conservado; sin consulta automática de avance habilitada.'})
+    cuts=[data['meta']['coenDate'],data['meta']['anaDate'],data['meta']['rainLatestEndDate'],data['hydroHistory']['sourceDate']]
+    data['meta']['mapEndDate']=max(cuts);data['meta']['updatedAt']=max(cuts)
+    data['meta']['note']='Actualización automática por fuente. Se conserva la última versión válida ante errores.'
+    status['checkedAt']=dt.datetime.now(LIMA).isoformat(timespec='seconds')
+    atomic_json(root/'data/live.json',{'schema':'fen-live/v1','encoding':'gzip-base64','data':pack(difference(base,data))})
+    atomic_json(root/'data/status.json',status)
+
 def refresh(root=ROOT, only=None):
-    base=load_base(root);data=merge_patch(base,load_live(root))
+    base=load_base(root);data=hydrate(base,load_live(root))
     today=dt.datetime.now(LIMA).date().isoformat();now=dt.datetime.now(LIMA).isoformat(timespec='seconds')
     status_path=root/'data/status.json'
     status=json.loads(status_path.read_text()) if status_path.exists() else {'schema':'fen-status/v1','sources':{}}
@@ -295,6 +321,8 @@ def refresh(root=ROOT, only=None):
     for name,fn in jobs.items():
         if only and name not in only:continue
         previous=status['sources'].get(name,{})
+        status['sources'][name]={**previous,'state':'error','lastAttempt':now,'error':'La última consulta aún no se completó.'}
+        persist_data(base,data,status,root)
         candidate=copy.deepcopy(data)
         try:
             result=fn(candidate,today)
@@ -303,15 +331,7 @@ def refresh(root=ROOT, only=None):
         except Exception as exc:
             status['sources'][name]={**previous,'state':'error','lastAttempt':now,'error':str(exc)}
             print(name,'ERROR',str(exc),flush=True)
-    status['checkedAt']=now
-    for name,cut in [('barriers',data['meta']['barrierDate']),('additional','2026-11-05')]:
-        status['sources'].setdefault(name,{'state':'manual','cut':cut,'note':'Catálogo conservado; sin consulta automática de avance habilitada.'})
-    cuts=[data['meta']['coenDate'],data['meta']['anaDate'],data['meta']['rainLatestEndDate'],data['hydroHistory']['sourceDate']]
-    data['meta']['mapEndDate']=max(cuts);data['meta']['updatedAt']=max(cuts)
-    data['meta']['note']='Actualización automática por fuente. Se conserva la última versión válida ante errores.'
-    delta=difference(base,data)
-    atomic_json(root/'data/live.json',{'schema':'fen-live/v1','encoding':'gzip-base64','data':pack(delta)})
-    atomic_json(status_path,status)
+        persist_data(base,data,status,root)
     summary=['## Actualización FEN', '', '| Fuente | Estado | Corte |', '|---|---|---|']
     summary += [f"| {name} | {value['state']} | {value.get('cut','Sin actualización')} |" for name,value in status['sources'].items()]
     if os.environ.get('GITHUB_STEP_SUMMARY'):

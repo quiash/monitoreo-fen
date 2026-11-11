@@ -14,6 +14,8 @@ El workflow **Actualizar datos FEN** consulta las fuentes cada tres horas (minut
 - **Ríos:** consulta hidrogramas diarios de las estaciones/variables del inventario. Conserva fechas, unidades y umbrales; una estación fallida retiene su última serie. El promedio diario no es una alerta oficial en tiempo real.
 - **94 adicionales y barreras:** conservan su catálogo original. No se declara actualización de avance cuando no existe una consulta automática validada.
 
+Cada fuente se guarda y publica al terminar, sin esperar a las demás. Las consultas tienen tiempo máximo; una interrupción conserva las fuentes que ya terminaron.
+
 Los errores se muestran en **Fuentes y notas → Estado de actualización**. Un intento fallido no cambia el corte de esa fuente. `data/status.json` registra intentos y últimos éxitos; `data/live.json` contiene las diferencias comprimidas respecto de la base. No mezclar partes de diferentes bases.
 
 El workflow solicita explícitamente una publicación Pages después de guardar los datos, porque los commits hechos con `GITHUB_TOKEN` no activan por sí solos una nueva publicación. Mantener **Settings → Pages → Deploy from a branch → main → /(root)**.

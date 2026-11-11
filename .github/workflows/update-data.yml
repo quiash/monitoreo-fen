@@ -9,17 +9,21 @@ on:
       - '.github/workflows/update-data.yml'
       - 'tools/refresh_data.py'
       - 'tools/request_pages_build.py'
+      - 'tools/publish_updates.sh'
       - 'tools/requirements-refresh.txt'
 permissions:
   contents: write
   pages: write
 concurrency:
   group: fen-data-refresh
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   actualizar:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,22 +37,27 @@ jobs:
         run: |
           python -m unittest discover -s tests -v
           python tools/validate_site.py
-      - name: Consultar fuentes oficiales
-        run: python tools/refresh_data.py
-      - name: Comprobar resultado
-        run: python tools/validate_live.py
-      - name: Guardar datos y estado
-        id: guardar
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add data/live.json data/status.json
-          if ! git diff --cached --quiet; then
-            git commit -m 'Actualizar fuentes FEN y estado de consulta'
-            git push origin HEAD:main
-          fi
-      - name: Publicar en GitHub Pages
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: python tools/request_pages_build.py
+      - name: Consultar COEN
+        timeout-minutes: 3
+        continue-on-error: true
+        run: python tools/refresh_data.py --only coen
+      - name: Publicar estado COEN
+        run: bash tools/publish_updates.sh
+      - name: Consultar ANA
+        timeout-minutes: 5
+        continue-on-error: true
+        run: python tools/refresh_data.py --only ana
+      - name: Publicar actualización ANA
+        run: bash tools/publish_updates.sh
+      - name: Consultar lluvia SENAMHI
+        timeout-minutes: 6
+        continue-on-error: true
+        run: python tools/refresh_data.py --only rain
+      - name: Publicar actualización de lluvia
+        run: bash tools/publish_updates.sh
+      - name: Consultar ríos SENAMHI
+        timeout-minutes: 13
+        continue-on-error: true
+        run: python tools/refresh_data.py --only hydro
+      - name: Publicar actualización de ríos
+        run: bash tools/publish_updates.sh

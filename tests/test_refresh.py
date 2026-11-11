@@ -22,14 +22,14 @@ class RefreshTests(unittest.TestCase):
         old={'id':'1','url':'https://example.org/old.pdf','dateSource':'PDF','date':'2026-11-01','metrics':[{'valor_propuesto':10}],'exposure':[], 'state':'contrastado_muestra'}
         data={'events':[old], 'meta':{'coenDate':'2026-11-09'},'coenSnapshots':{}}
         raw={'type':'FeatureCollection','features':[{'properties':{'id':1,'Fecha de ocurrencia':'2026-11-10T10:00:00Z','document':'https://example.org/new.pdf'},'geometry':None}]}
-        with patch.object(m,'get_json',return_value=raw):m.update_coen(data,'2026-11-11')
+        with patch.object(m,'fetch',return_value=__import__('json').dumps(raw).encode()):m.update_coen(data,'2026-11-11')
         self.assertEqual(data['events'][0]['metrics'],[])
         self.assertEqual(data['events'][0]['state'],'propuesta_revisar')
         self.assertEqual(data['eventRevisions']['1'][0]['record']['metrics'],old['metrics'])
 
     def test_empty_source_rejected(self):
         data={'events':[{'id':'1'}]}
-        with patch.object(m,'get_json',return_value={'type':'FeatureCollection','features':[]}):
+        with patch.object(m,'fetch',return_value=b'{"type":"FeatureCollection","features":[]}'):
             with self.assertRaises(ValueError):m.update_coen(data,'2026-11-11')
         self.assertEqual(data,{'events':[{'id':'1'}]})
 
@@ -44,6 +44,42 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(series['2026-11-10']['value'],3.5)
         self.assertEqual(series['2026-11-10']['thresholds']['amarillo'],10)
         self.assertEqual(len(series),1)
+
+    def test_ana_keeps_previous_cuts_for_missing_points(self):
+        import json
+        data={'meta':{'anaDate':'2026-11-06','anaPreviousDate':'2026-11-05','anaCuts':['2026-11-06','2026-11-05','2026-10-27']},'ana':[],'anaDiary':{}}
+        rows=[];general=[]
+        for i in range(300):
+            code=f'{i:04}-2026-ANA-AAA.JZ-ALA.CH'
+            cur={'CODIGO':code,'DECRETO':'D.S N° 164-2026-EF','ESTADO':'En Ejecución'}
+            data['ana'].append({'id':str(i),'current':cur,'previous':{**cur,'ESTADO':'Por Ejecutar'},'history':{'2026-10-27':cur},'diary':[]})
+            rows.append({'CODIGO_INTERVENCION':code,'FECHA_INTERVENCION':'2026-11-10','PERIODO':2,'DECRETO_URGENCIA':'D.S N° 164-2026-EF','AVANCE_KM':.1})
+            general.append({'CODIGO_INTERVENCION':code,'DECRETO_URGENCIA':'D.S N° 164-2026-EF','ESTADO_INTERVENCION':'Ejecutado'})
+        data['ana'].append({'id':'missing','current':{'CODIGO':'9999-2026-ANA-AAA.JZ-ALA.CH','DECRETO':'D.S N° 164-2026-EF','ESTADO':'En Ejecución'},'previous':{'ESTADO':'Por Ejecutar'},'history':{'2026-10-27':{'ESTADO':'Por Ejecutar'}},'diary':[]})
+        def response(rows):return {'success':True,'timestamp':'2026-11-11T12:00:00Z','data':[{'filas':rows,'totalFilas':len(rows)}]}
+        with patch.object(m,'get_json',side_effect=[response(rows),response(general)]):m.update_ana(data,'2026-11-11')
+        missing=data['ana'][-1]
+        for point in data['ana']:
+            self.assertTrue(set(data['meta']['anaCuts']) <= set(point['history']))
+        self.assertEqual(missing['previous']['ESTADO'],'En Ejecución')
+        self.assertEqual(missing['history']['2026-11-05']['ESTADO'],'Por Ejecutar')
+        self.assertEqual(missing['currentSourceDate'],'2026-11-06')
+
+    def test_completed_source_survives_interruption(self):
+        import tempfile, json
+        base={'ana':[],'meta':{'anaDate':'2026-11-06','anaPreviousDate':'2026-11-05','coenDate':'2026-11-09','barrierDate':'2026-10-02','rainLatestEndDate':'2026-11-09'},'hydroHistory':{'sourceDate':'2026-11-09'}}
+        def coen(data,today):
+            data['meta']['coenDate']=today
+            return {'cut':today,'records':1}
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'data').mkdir()
+            with patch.object(m,'load_base',return_value=base),patch.object(m,'load_live',return_value={}),patch.object(m,'update_coen',side_effect=coen),patch.object(m,'update_ana',side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):m.refresh(root,only=['coen','ana'])
+            status=json.loads((root/'data/status.json').read_text())
+            live=m.unpack(json.loads((root/'data/live.json').read_text())['data'])
+            self.assertEqual(status['sources']['coen']['state'],'ok')
+            self.assertEqual(status['sources']['ana']['state'],'error')
+            self.assertGreater(live['meta']['coenDate'],base['meta']['coenDate'])
 
     def test_numeric_missing_is_not_zero(self):
         self.assertIsNone(m.number(None));self.assertIsNone(m.number('NaN'));self.assertEqual(m.number(0),0)

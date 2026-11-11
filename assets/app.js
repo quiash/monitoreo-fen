@@ -518,6 +518,8 @@ function setMapExpanded(expanded){
 const controlsBeforeMapExpand=setupControls;
 setupControls=function(){controlsBeforeMapExpand();$('mapInfoToggle').onclick=()=>setExpandedInfo($('mapInfoToggle').getAttribute('aria-expanded')!=='true');$('closeExpandedInfo').onclick=()=>setExpandedInfo(false);$('expandMap').onclick=()=>setMapExpanded($('expandMap').getAttribute('aria-expanded')!=='true');window.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('expandMap').getAttribute('aria-expanded')==='true'){setMapExpanded(false);$('expandMap').focus();}});};
 
+const anaDetailBeforeFreshness=anaDetail;
+anaDetail=function(r){const html=anaDetailBeforeFreshness(r);return html+(r.currentSourceDate&&r.currentSourceDate!==DATA.meta.anaDate?'<p class="detail-note">Atributos conservados de '+fullDate(r.currentSourceDate)+'. Sin coincidencia única en el reporte general de la consulta más reciente.</p>':'');};
 const renderBeforeSourceFreshness=render;
 render=function(){
  renderBeforeSourceFreshness();
