@@ -51,14 +51,18 @@ jobs:
       - name: Publicar actualización ANA
         run: bash tools/publish_updates.sh
       - name: Consultar lluvia SENAMHI
+        if: ${{ vars.FEN_SENAMHI_RUNNER == 'github' }}
         timeout-minutes: 6
         continue-on-error: true
         run: python tools/refresh_data.py --only rain
       - name: Publicar actualización de lluvia
+        if: ${{ vars.FEN_SENAMHI_RUNNER == 'github' }}
         run: bash tools/publish_updates.sh
       - name: Consultar ríos SENAMHI
+        if: ${{ vars.FEN_SENAMHI_RUNNER == 'github' }}
         timeout-minutes: 13
         continue-on-error: true
         run: python tools/refresh_data.py --only hydro
       - name: Publicar actualización de ríos
+        if: ${{ vars.FEN_SENAMHI_RUNNER == 'github' }}
         run: bash tools/publish_updates.sh
