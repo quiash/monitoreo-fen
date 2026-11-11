@@ -19,7 +19,8 @@ concurrency:
   cancel-in-progress: true
 jobs:
   actualizar:
-    runs-on: ubuntu-latest
+    # Optional runner labels as JSON, e.g. ["self-hosted","Linux","fen"].
+    runs-on: ${{ fromJSON(vars.FEN_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}

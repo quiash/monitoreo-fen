@@ -2,7 +2,7 @@
 
 Visor de emergencias e intervenciones preventivas en Perú. Incluye COEN, puntos críticos ANA, barreras, ríos, lluvia observada e intensidad de lluvia respecto del histórico PISCOp.
 
-El visor carga una base histórica y una actualización incremental por fuente. OpenStreetMap es el fondo predeterminado y no requiere clave. El fondo satelital MapTiler es opcional.
+El visor carga una base histórica y una actualización incremental por fuente. OpenStreetMap es el fondo predeterminado y no requiere clave. Los botones Satélite (Esri World Imagery) y Sentinel-2 (EOX, mosaico 2024) tampoco requieren clave. MapTiler queda como opción avanzada.
 
 ## Actualización automática
 
@@ -61,3 +61,27 @@ python3 -m http.server 8000
 ```
 
 Después abre http://localhost:8000. La web carga sus datos mediante HTTP; no debe abrirse haciendo doble clic en `index.html`. Para compartir un único archivo utiliza la copia portable generada por el visor.
+
+## Fondos satelitales
+
+- **Satélite:** Esri World Imagery, imágenes de distintas fechas y resoluciones según zona. Mantener los créditos de Esri y sus proveedores y respetar sus [condiciones](https://www.esri.com/en-us/legal/terms/web-site-service).
+- **Sentinel-2:** Sentinel-2 cloudless 2024 de EOX, resolución aproximada de 10 m. Servicio gratuito para uso no comercial, con atribución CC BY-NC-SA 4.0. [Condiciones EOX](https://eox.at/2025/03/sentinel-2-cloudless-2024/).
+
+Son fondos de referencia, no imágenes actuales de la emergencia. No se descargan ni almacenan teselas en las consultas de datos. La disponibilidad depende de cada proveedor.
+
+## Conectividad de las fuentes y ejecución alternativa
+
+Comprobación del 11/11/2026: el dominio `coen.indeci.gob.pe` devuelve NXDOMAIN en DNS público. El visor oficial INDECI sigue apuntando a ese dominio. No se sustituye por la capa SINPAD cuya última fecha observada es mayo de 2026. La actualización COEN se reanudará cuando su servicio vuelva a responder o se valide un reemplazo vigente.
+
+SENAMHI responde desde algunas redes, pero las conexiones HTTPS agotaron su tiempo desde runners GitHub de Windows, Linux x64 y Linux ARM. Cambiar de mapa de fondo no resuelve el acceso a estas fuentes.
+
+El workflow permite ejecutar las mismas consultas y publicaciones desde otro servidor mediante la variable de repositorio **FEN_RUNNER**. Sin esa variable mantiene `ubuntu-latest` y la actualización ANA operativa.
+
+Para un servidor Linux con acceso comprobado a SENAMHI:
+
+1. En **Settings → Actions → Runners → New self-hosted runner**, registrar el servidor siguiendo los comandos que muestra GitHub. No publicar su token. Añadir la etiqueta `fen` y habilitar el servicio para que arranque automáticamente.
+2. Instalar Python 3.12, Git y Bash en ese servidor; comprobar acceso HTTPS a `www.senamhi.gob.pe` e `idesep.senamhi.gob.pe`.
+3. En **Settings → Secrets and variables → Actions → Variables**, crear `FEN_RUNNER` con valor `["self-hosted","Linux","fen"]`.
+4. Ejecutar **Actions → Actualizar datos FEN → Run workflow** y comprobar los cortes de lluvia y ríos en el visor.
+
+Usar un servidor dedicado de confianza: este repositorio es público y el runner ejecuta el código de `main`. No habilitar ejecución de contribuciones externas sin revisión. El equipo debe permanecer encendido. Esta opción está preparada pero no queda activa hasta registrar el servidor y configurar la variable. Eliminar la variable devuelve las consultas a GitHub.

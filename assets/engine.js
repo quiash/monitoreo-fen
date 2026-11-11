@@ -68,7 +68,7 @@ window.TerritoryMap=class {
    this.styleReady=false;this.engine.setStyle(style,{diff:false});
   }else{
    if(this.background)this.engine.removeLayer(this.background);
-   this.background=L.tileLayer(rasterUrl,{maxZoom:20,maxNativeZoom:rasterUrl.includes('tile.openstreetmap.org')?19:20,updateWhenIdle:true,keepBuffer:1,attribution}).addTo(this.engine);
+   this.background=L.tileLayer(rasterUrl,{maxZoom:20,maxNativeZoom:rasterUrl.includes('tile.openstreetmap.org')?19:rasterUrl.includes('tiles.maps.eox.at')?14:20,updateWhenIdle:true,keepBuffer:1,attribution}).addTo(this.engine);
    this.background.on('tileload',onReady);this.background.on('tileerror',()=>onError({error:{status:0}}));
    this.drawState();
   }

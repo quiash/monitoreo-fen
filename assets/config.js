@@ -24,11 +24,22 @@ window.localMapControls=(()=>{
   view.setBackground(null,'raster','https://tile.openstreetmap.org/{z}/{x}/{y}.png','© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>',
    ()=>{if(version===revision){message('OpenStreetMap · sin clave.','ok');el('mapConnection').textContent='OpenStreetMap';el('tileWarning').hidden=true;}},
    ()=>{if(version===revision){message('Fondo temporalmente no disponible.','error');warn('No se pudo cargar OpenStreetMap. Los registros siguen disponibles.');}});
-  el('baseMap').classList.add('active');el('baseSatellite').classList.remove('active');
+  el('baseMap').classList.add('active');el('baseSatellite').classList.remove('active');el('baseSentinel').classList.remove('active');
   message('Cargando OpenStreetMap…');
   return true;
  }
- async function setBase(wanted){
+ function setSatellite(source='esri'){
+  if(controller)controller.abort();const version=++revision;base=source==='eox'?'sentinel':'satellite';
+  const eox=source==='eox',label=eox?'Sentinel-2 · EOX · 2024':'Esri World Imagery';
+  const url=eox?'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg':'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+  const credit=eox?'<a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless</a> by <a href="https://eox.at" target="_blank" rel="noopener">EOX</a> · Copernicus Sentinel data 2024 · <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noopener">CC BY-NC-SA 4.0</a>':'Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community · <a href="https://www.esri.com/en-us/legal/terms/web-site-service" target="_blank" rel="noopener">Condiciones</a>';
+  el('tileWarning').hidden=true;
+  view.setBackground(null,'raster',url,credit,()=>{if(version===revision){message(label+' · sin clave.','ok');el('mapConnection').textContent=label;el('tileWarning').hidden=true;}},()=>{if(version===revision){message('Fondo satelital no disponible.','error');warn('No se pudo cargar '+label+'. Puede seleccionar otro fondo.');}});
+  el('baseMap').classList.remove('active');el('baseSatellite').classList.toggle('active',!eox);el('baseSentinel').classList.toggle('active',eox);
+  message('Cargando '+label+'…');return true;
+ }
+ function setBase(wanted){return wanted==='map'?setOpenStreetMap():setSatellite(wanted==='sentinel'?'eox':'esri');}
+ async function setMapTiler(wanted){
   if(wanted==='map')return setOpenStreetMap();
   if(!key){show();return false;}
   const styleId=(wanted==='satellite'?el('satelliteStyle').value:el('streetStyle').value).trim();
@@ -54,7 +65,7 @@ window.localMapControls=(()=>{
    view.setBackground(style,mode,'https://api.maptiler.com/maps/'+encodeURIComponent(styleId)+'/256/{z}/{x}/{y}.png?key='+encodeURIComponent(key),attribution,
     ()=>{if(version===revision&&!resourceFailed){message('Conexión establecida.','ok');el('tileWarning').hidden=true;}},
     event=>{if(version!==revision)return;resourceFailed=true;const text=failure(Number(event?.error?.status)||0);message(text,'error');warn(text);});
-   base=wanted;el('baseMap').classList.toggle('active',base==='map');el('baseSatellite').classList.toggle('active',base==='satellite');
+   base=wanted;el('baseSentinel').classList.remove('active');el('baseMap').classList.toggle('active',base==='map');el('baseSatellite').classList.toggle('active',base==='satellite');
    message('Estilo aceptado. Cargando el fondo…');return true;
   }catch(error){
    if(error.name==='AbortError'&&!timedOut)return false;
@@ -83,13 +94,13 @@ window.localMapControls=(()=>{
   view=mapView;mode=view.kind;
   el('keyBtn').onclick=show;el('closeConfig').onclick=hide;el('noBackground').onclick=hide;el('forgetKey').onclick=forget;
   el('saveConfigured').onclick=saveConfigured;
-  el('baseMap').onclick=()=>setBase('map');el('baseSatellite').onclick=()=>setBase('satellite');
+  el('baseMap').onclick=()=>setBase('map');el('baseSatellite').onclick=()=>setBase('satellite');el('baseSentinel').onclick=()=>setBase('sentinel');
   el('showKey').onclick=()=>{el('mapKey').type=el('mapKey').type==='password'?'text':'password';el('showKey').textContent=el('mapKey').type==='password'?'Mostrar':'Ocultar';};
   el('mapKeyForm').onsubmit=async event=>{
    event.preventDefault();const value=el('mapKey').value.trim();if(!/^[A-Za-z0-9_-]{8,256}$/.test(value)){message('Pega solo la clave, sin URL, espacios ni comillas.','error');return;}
    key=value;mode=el('renderMode').value;el('applyKey').disabled=true;
    try{
-    if(await setBase('satellite')){
+    if(await setMapTiler('satellite')){
      try{if(el('rememberKey').checked)localStorage.setItem(storage,JSON.stringify({key,mode,street:el('streetStyle').value,satellite:el('satelliteStyle').value}));else localStorage.removeItem(storage);}catch{}
      hide();
     }
