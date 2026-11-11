@@ -18,7 +18,18 @@ window.localMapControls=(()=>{
   if(status===429)return 'Limite de solicitudes (429). Revisa la cuota de MapTiler.';
   return status?'MapTiler: HTTP '+status+'.':'No se pudo cargar el fondo. Revise conexión y permisos.';
  }
+ function setOpenStreetMap(){
+  if(controller)controller.abort();const version=++revision;base='map';
+  el('tileWarning').hidden=true;
+  view.setBackground(null,'raster','https://tile.openstreetmap.org/{z}/{x}/{y}.png','© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>',
+   ()=>{if(version===revision){message('OpenStreetMap · sin clave.','ok');el('mapConnection').textContent='OpenStreetMap';el('tileWarning').hidden=true;}},
+   ()=>{if(version===revision){message('Fondo temporalmente no disponible.','error');warn('No se pudo cargar OpenStreetMap. Los registros siguen disponibles.');}});
+  el('baseMap').classList.add('active');el('baseSatellite').classList.remove('active');
+  message('Cargando OpenStreetMap…');
+  return true;
+ }
  async function setBase(wanted){
+  if(wanted==='map')return setOpenStreetMap();
   if(!key){show();return false;}
   const styleId=(wanted==='satellite'?el('satelliteStyle').value:el('streetStyle').value).trim();
   if(!/^[A-Za-z0-9_-]+$/.test(styleId)){message('Introduce el identificador del estilo, sin URL.','error');return false;}
@@ -51,7 +62,7 @@ window.localMapControls=(()=>{
    message(text,'error');warn(text);return false;
   }finally{clearTimeout(timeout);}
  }
- function forget(){++revision;if(controller)controller.abort();key='';el('mapKey').value='';el('rememberKey').checked=false;try{localStorage.removeItem(storage);}catch{}view.clearBackground();el('tileWarning').hidden=true;message('Clave retirada de la sesión y del navegador. La copia configurada conserva su clave.');}
+ function forget(){++revision;if(controller)controller.abort();key='';el('mapKey').value='';el('rememberKey').checked=false;try{localStorage.removeItem(storage);}catch{}setOpenStreetMap();}
  function makeConfiguredDocument(template,settings){
   if(!/^[A-Za-z0-9_-]{8,256}$/.test(settings.key||''))throw Error('Clave no válida.');
   const pattern=/(<script\b[^>]*\bid=["']startupConfig["'][^>]*>)[\s\S]*?(<\/script\s*>)/i;
@@ -78,7 +89,7 @@ window.localMapControls=(()=>{
    event.preventDefault();const value=el('mapKey').value.trim();if(!/^[A-Za-z0-9_-]{8,256}$/.test(value)){message('Pega solo la clave, sin URL, espacios ni comillas.','error');return;}
    key=value;mode=el('renderMode').value;el('applyKey').disabled=true;
    try{
-    if(await setBase(base)){
+    if(await setBase('satellite')){
      try{if(el('rememberKey').checked)localStorage.setItem(storage,JSON.stringify({key,mode,street:el('streetStyle').value,satellite:el('satelliteStyle').value}));else localStorage.removeItem(storage);}catch{}
      hide();
     }
@@ -87,8 +98,8 @@ window.localMapControls=(()=>{
   let saved=null;
   try{const configured=JSON.parse(document.getElementById('startupConfig')?.textContent||'{}');if(configured.key)saved=configured;}catch{}
   if(!saved)try{saved=JSON.parse(localStorage.getItem(storage)||'null');}catch{}
-  if(saved?.key){key=saved.key;mode=saved.mode==='raster'?'raster':'vector';el('streetStyle').value=saved.street||'streets-v4';el('satelliteStyle').value=saved.satellite||'hybrid-v4';el('rememberKey').checked=!saved.autoConnect;setBase('map');}
-  else{message('Clave no configurada.');}
+  if(saved?.key){key=saved.key;mode=saved.mode==='raster'?'raster':'vector';el('streetStyle').value=saved.street||'streets-v4';el('satelliteStyle').value=saved.satellite||'hybrid-v4';el('rememberKey').checked=!saved.autoConnect;}
+  setOpenStreetMap();
  }
  return {init,makeConfiguredDocument};
 })();

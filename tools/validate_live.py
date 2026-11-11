@@ -1,0 +1,19 @@
+"""Check merged live data, historical preservation and published source dates."""
+from refresh_data import ROOT, load_base, load_live, merge_patch
+import json
+base=load_base(); data=merge_patch(base,load_live())
+assert len(data['ana'])==536
+assert len({r['id'] for r in data['ana']})==536
+assert len(data['additional'])==94 and len(data['barriers'])==12
+assert {r['id'] for r in base['events']} <= {r['id'] for r in data['events']}
+assert set(base['rainHistory']) <= set(data['rainHistory'])
+assert data['meta']['mapEndDate'] >= data['meta']['coenDate']
+for point in data['ana']:
+    assert point['paths'], point['id']
+    for group in point.get('diary',[]):
+        assert len({r['date'] for r in group['rows']})==len(group['rows']), (point['id'],group['key'])
+status=json.loads((ROOT/'data/status.json').read_text())
+assert status['schema']=='fen-status/v1'
+for source in status['sources'].values():
+    assert source['state'] in ['ok','partial','error','manual']
+print('OK: actualización íntegra; historial y catálogos conservados. Periodo hasta', data['meta']['mapEndDate'])

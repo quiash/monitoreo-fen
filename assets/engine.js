@@ -6,7 +6,7 @@ window.TerritoryMap=class {
   this.id=id;this.onSelect=onSelect;this.engine=null;this.kind=null;
   this.state={data:{events:[],ana:[],barriers:[]},selected:null,visible:{events:true,ana:true,barriers:true},snapshot:'current'};
   this.layers=null;this.nativeMarkers=[];this.lastCenter=[-10,-75.7];this.lastZoom=5;
-  this.changeMode(this.supportsVector()?'vector':'raster');
+  this.changeMode('raster');
  }
  supportsVector(){
   try{const c=document.createElement('canvas').getContext('webgl2');if(!c)return false;c.getExtension('WEBGL_lose_context')?.loseContext();return true;}catch{return false;}
@@ -68,7 +68,7 @@ window.TerritoryMap=class {
    this.styleReady=false;this.engine.setStyle(style,{diff:false});
   }else{
    if(this.background)this.engine.removeLayer(this.background);
-   this.background=L.tileLayer(rasterUrl,{maxZoom:20,attribution}).addTo(this.engine);
+   this.background=L.tileLayer(rasterUrl,{maxZoom:20,maxNativeZoom:rasterUrl.includes('tile.openstreetmap.org')?19:20,updateWhenIdle:true,keepBuffer:1,attribution}).addTo(this.engine);
    this.background.on('tileload',onReady);this.background.on('tileerror',()=>onError({error:{status:0}}));
    this.drawState();
   }

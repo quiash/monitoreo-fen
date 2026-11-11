@@ -2,7 +2,23 @@
 
 Visor de emergencias e intervenciones preventivas en Perú. Incluye COEN, puntos críticos ANA, barreras, ríos, lluvia observada e intensidad de lluvia respecto del histórico PISCOp.
 
-**Corte incluido:** 9 de noviembre de 2026. La fecha disponible de cada capa se muestra en el visor. La publicación inicial conserva la información existente; todavía no consulta las fuentes automáticamente.
+El visor carga una base histórica y una actualización incremental por fuente. OpenStreetMap es el fondo predeterminado y no requiere clave. El fondo satelital MapTiler es opcional.
+
+## Actualización automática
+
+El workflow **Actualizar datos FEN** consulta las fuentes cada tres horas (minuto 23; GitHub puede retrasar las ejecuciones). También puede iniciarse en **Actions → Actualizar datos FEN → Run workflow**.
+
+- **ANA:** consulta reporte general y diario. Vincula fichas de manera única, conserva la jerarquía del inventario, separa normas/periodos y excluye fechas futuras. Los presupuestos existentes se conservan cuando el reporte no los incluye.
+- **COEN:** consulta los últimos 30 días, incorpora registros y conserva el archivo histórico. Nuevos documentos quedan pendientes de revisión; no se extraen cifras de daños automáticamente.
+- **Lluvia:** descarga estaciones y superficie oficial SENAMHI; la fecha proviene de la publicación, con acumulados 07:00–07:00 hora Perú. Recupera días faltantes disponibles y conserva los anteriores. Los percentiles se calculan con la referencia PISCOp existente, cuya cobertura sigue limitada a octubre y noviembre.
+- **Ríos:** consulta hidrogramas diarios de las estaciones/variables del inventario. Conserva fechas, unidades y umbrales; una estación fallida retiene su última serie. El promedio diario no es una alerta oficial en tiempo real.
+- **94 adicionales y barreras:** conservan su catálogo original. No se declara actualización de avance cuando no existe una consulta automática validada.
+
+Los errores se muestran en **Fuentes y notas → Estado de actualización**. Un intento fallido no cambia el corte de esa fuente. `data/status.json` registra intentos y últimos éxitos; `data/live.json` contiene las diferencias comprimidas respecto de la base. No mezclar partes de diferentes bases.
+
+El workflow solicita explícitamente una publicación Pages después de guardar los datos, porque los commits hechos con `GITHUB_TOKEN` no activan por sí solos una nueva publicación. Mantener **Settings → Pages → Deploy from a branch → main → /(root)**.
+
+OpenStreetMap se usa sólo para visualización interactiva, con atribución y caché normal del navegador; no se descargan teselas en los procesos automáticos ni se permite descarga masiva para uso offline.
 
 ## Publicar la web
 
@@ -17,7 +33,7 @@ No necesitas instalar programas. GitHub Pages sirve archivos estáticos; esta co
 
 Abre https://quiash.github.io/monitoreo-fen/actualizar.html y selecciona una versión nueva del HTML portable del mapa que ya contenga los datos actualizados. La herramienta prepara un ZIP del sitio: descomprímelo y sube sus archivos y carpetas con **Add file → Upload files** en GitHub. No selecciones el ZIP como si fuera el sitio.
 
-Este procedimiento publica una nueva base ya preparada; no realiza las consultas de ANA, COEN o SENAMHI. La automatización de esas consultas es una etapa posterior y necesita validar el acceso de cada fuente desde la nube.
+Este procedimiento publica una nueva base ya preparada; no realiza las consultas de ANA, COEN o SENAMHI. La consulta periódica se ejecuta mediante el workflow descrito arriba. Una nueva base portable debe corresponder al corte correcto de cada fuente.
 
 ## Archivos
 
