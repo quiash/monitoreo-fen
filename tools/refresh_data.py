@@ -2,8 +2,8 @@
 from __future__ import annotations
 import argparse, base64, concurrent.futures, copy, datetime as dt, gzip, hashlib, json, math, os, re, time, unicodedata
 from pathlib import Path
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urlparse, parse_qs
+from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,12 +34,40 @@ def code(value):
     match = re.search(r'\d{4}20\d{2}ANA.*', value)
     return match[0] if match else value
 
+BRIDGE_ORIGIN = 'https://fen-senamhi-bridge.cierna-estocastico.chatgpt.site'
+
+class NoBridgeRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+def bridge_request(url, form=None):
+    token=os.environ.get('SENAMHI_BRIDGE_TOKEN','').strip()
+    if not token:return None
+    parsed=urlparse(url);path=None
+    if url==RAIN_PAGE:path='/v1/rain/page'
+    elif url==HYDRO:path='/v1/hydro/daily'
+    elif url=='https://www.senamhi.gob.pe/mapas/mapa-monitoreohidro/js/mnt-grafica-new.js':path='/v1/hydro/preflight'
+    elif parsed.scheme=='https' and parsed.hostname=='idesep.senamhi.gob.pe':
+        params=parse_qs(parsed.query)
+        if parsed.path=='/geoserver/monitoreo_meteorologico/ows':
+            match=re.fullmatch(r'monitoreo_meteorologico:prec_([1-9]|1[0-5])_all_points',params.get('typeName',[''])[0])
+            if match:path='/v1/rain/stations?rank='+match[1]
+        elif parsed.path=='/geoserver/monitoreo_meteorologico/wcs':
+            match=re.fullmatch(r'monitoreo_meteorologico__prec_([1-9]|1[0-5])',params.get('coverageId',[''])[0])
+            if match:path='/v1/rain/surface?rank='+match[1]
+    if path is None:
+        if parsed.hostname in ['www.senamhi.gob.pe','idesep.senamhi.gob.pe']:raise ValueError('Consulta SENAMHI no admitida por el conector')
+        return None
+    return Request(BRIDGE_ORIGIN+path,data=urlencode(form).encode() if form is not None else None,headers={'OAI-Sites-Authorization':'Bearer '+token,'User-Agent':'MonitoreoFEN/1.0','Accept':'*/*'})
+
 def fetch(url, form=None, timeout=45, retries=3):
-    data = urlencode(form).encode() if form is not None else None
-    headers = {'User-Agent': 'MonitoreoFEN/1.0 (+https://github.com/quiash/monitoreo-fen)', 'Accept': '*/*'}
+    proxied=bridge_request(url,form)
+    req=proxied or Request(url,data=urlencode(form).encode() if form is not None else None,headers={'User-Agent':'MonitoreoFEN/1.0 (+https://github.com/quiash/monitoreo-fen)','Accept':'*/*'})
+    # Refuse redirects before a private credential can be forwarded to another host.
+    open_request=build_opener(NoBridgeRedirect()).open if proxied else urlopen
     for attempt in range(retries):
         try:
-            with urlopen(Request(url, data=data, headers=headers), timeout=timeout) as response:
+            with open_request(req, timeout=max(timeout,70) if proxied else timeout) as response:
                 content = response.read(60_000_001)
             if len(content) > 60_000_000: raise ValueError('Respuesta demasiado grande')
             return content
@@ -323,15 +351,16 @@ def refresh(root=ROOT, only=None):
     for name,fn in jobs.items():
         if only and name not in only:continue
         previous=status['sources'].get(name,{})
-        status['sources'][name]={**previous,'state':'error','lastAttempt':now,'error':'La última consulta aún no se completó.'}
+        executor='github_bridge' if os.environ.get('GITHUB_ACTIONS')=='true' and os.environ.get('SENAMHI_BRIDGE_TOKEN') and name in ['rain','hydro'] else 'github_actions' if os.environ.get('GITHUB_ACTIONS')=='true' else 'interactive_cloud'
+        status['sources'][name]={**previous,'executor':executor,'state':'error','lastAttempt':now,'error':'La última consulta aún no se completó.'}
         persist_data(base,data,status,root)
         candidate=copy.deepcopy(data)
         try:
             result=fn(candidate,today)
-            status['sources'][name]={**previous,**result,'state':'partial' if result.get('partial') else 'ok','lastAttempt':now,'lastSuccess':now,'error':None}
+            status['sources'][name]={**previous,**result,'executor':executor,'state':'partial' if result.get('partial') else 'ok','lastAttempt':now,'lastSuccess':now,'error':None}
             data=candidate;print(name,'OK',dumps(result),flush=True)
         except Exception as exc:
-            status['sources'][name]={**previous,'state':'error','lastAttempt':now,'error':str(exc)}
+            status['sources'][name]={**previous,'executor':executor,'state':'error','lastAttempt':now,'error':str(exc)}
             print(name,'ERROR',str(exc),flush=True)
         persist_data(base,data,status,root)
     summary=['## Actualización FEN', '', '| Fuente | Estado | Corte |', '|---|---|---|']

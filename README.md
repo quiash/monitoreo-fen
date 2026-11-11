@@ -6,7 +6,7 @@ El visor carga una base histórica y una actualización incremental por fuente. 
 
 ## Actualización automática
 
-El workflow **Actualizar datos FEN** consulta ANA y COEN cada tres horas (minuto 23; GitHub puede retrasar las ejecuciones). También puede iniciarse en **Actions → Actualizar datos FEN → Run workflow**. SENAMHI se ha configurado mediante la tarea **Actualizar SENAMHI del visor** de ChatGPT; véase [operación y limitaciones](docs/SENAMHI_AUTOMATION.md). Su primera ejecución programada está pendiente de comprobar. Las consultas SENAMHI en Actions sólo se habilitan con `FEN_SENAMHI_RUNNER=github`.
+El workflow **Actualizar datos FEN** consulta ANA y COEN cada tres horas (minuto 23; GitHub puede retrasar las ejecuciones). También puede iniciarse en **Actions → Actualizar datos FEN → Run workflow**. SENAMHI se ha configurado mediante la tarea **Actualizar SENAMHI del visor** de ChatGPT; véase [operación y limitaciones](docs/SENAMHI_AUTOMATION.md). Su primera ejecución programada está pendiente de comprobar. Las consultas SENAMHI en Actions se habilitan al guardar `SENAMHI_BRIDGE_TOKEN` para el [conector privado validado](docs/SENAMHI_BRIDGE.md), o con `FEN_SENAMHI_RUNNER=github` para acceso directo.
 
 - **ANA:** consulta reporte general y diario. Vincula fichas de manera única, conserva la jerarquía del inventario, separa normas/periodos y excluye fechas futuras. Los presupuestos existentes se conservan cuando el reporte no los incluye.
 - **COEN:** consulta los últimos 30 días, incorpora registros y conserva el archivo histórico. Nuevos documentos quedan pendientes de revisión; no se extraen cifras de daños automáticamente.
