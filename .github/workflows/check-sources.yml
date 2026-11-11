@@ -7,15 +7,20 @@ permissions:
   contents: read
 jobs:
   comprobar:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04-arm, windows-latest]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 4
     steps:
       - name: Comprobar respuestas desde GitHub
+        shell: bash
         run: |
           python - <<'PY'
-          import concurrent.futures, json, socket, subprocess
+          import concurrent.futures, json, socket, subprocess, os
           jobs = {
-            'COEN': ['https://coen.indeci.gob.pe/api/v2/mer/emergencies/geojson-last-emergencies?daysAgo=7'],
+            'INDECI SINPAD': ['https://geosinpad.indeci.gob.pe/indeci/rest/services/Emergencias/EMERGENCIAS_SINPAD/MapServer/0/query?where=1%3D1&outFields=FECHA,IDE_SINPAD&orderByFields=FECHA+DESC&resultRecordCount=1&f=json'],
             'SENAMHI página': ['https://www.senamhi.gob.pe/mapas/mapa-monitoreo-meteo/monitoreo-precipitacion.php'],
             'SENAMHI hidrograma': ['https://www.senamhi.gob.pe/mapas/mapa-monitoreohidro/include/mnt-grafica-new.php','--data','id=105136&fecha_hora=2026-11-11+23%3A59%3A00&rbtVariable=NIVEL&variable_opcion=N&btnTipo=D'],
             'SENAMHI WFS pequeño': ['https://idesep.senamhi.gob.pe/geoserver/monitoreo_meteorologico/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=monitoreo_meteorologico%3Aprec_1_all_points&maxFeatures=1&outputFormat=application%2Fjson'],
@@ -26,7 +31,7 @@ jobs:
             except Exception as error: print(host,str(error),flush=True)
           def run(item):
             name,params=item
-            result=subprocess.run(['curl','-4','-L','--silent','--show-error','--connect-timeout','8','--max-time','22','-A','MonitoreoFEN/1.0 (+https://github.com/quiash/monitoreo-fen)','-o','/dev/null','-w','HTTP %{http_code}; bytes %{size_download}; segundos %{time_total}',*params],capture_output=True,text=True)
+            result=subprocess.run(['curl','-4','-L','--silent','--show-error','--connect-timeout','8','--max-time','22','-A','MonitoreoFEN/1.0 (+https://github.com/quiash/monitoreo-fen)','-o',os.devnull,'-w','HTTP %{http_code}; bytes %{size_download}; segundos %{time_total}',*params],capture_output=True,text=True)
             return {'source':name,'exit':result.returncode,'result':result.stdout,'error':result.stderr}
           with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
             for result in pool.map(run,jobs.items()):print(json.dumps(result,ensure_ascii=False),flush=True)
