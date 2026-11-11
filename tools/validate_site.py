@@ -13,6 +13,6 @@ reference=json.loads((root/m['reference']).read_text())
 assert reference is None or reference['schema']=='fen-rain-reference/v1'
 html=(root/'index.html').read_text()
 for url in re.findall(r'<script[^>]*src="([^"]+)"',html)+re.findall(r'<link[^>]*href="([^"]+)"',html):
-    assert (root/url).is_file(),url
+    assert (root/url.split('?',1)[0]).is_file(),url
 for asset in m['assets']:assert (root/asset).is_file(),asset
 print('OK: base íntegra, referencias y archivos completos. Corte:',m['snapshotDate'])
