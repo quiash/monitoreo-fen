@@ -38,6 +38,8 @@
     "assets/maplibre.js",
     "assets/engine.js",
     "assets/config.js",
-    "assets/app.js"
+    "assets/app.js",
+    "assets/editorial.css",
+    "assets/editorial.js"
   ]
 }
