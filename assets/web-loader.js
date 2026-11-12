@@ -85,7 +85,7 @@ async function createPortableSiteTemplate(){
  const values=new Map();await Promise.all(window.__siteAssets.map(async path=>{const response=await fetch(path,{cache:'no-cache'});if(!response.ok)throw Error('No se pudo preparar la copia portable.');values.set(path,await response.text());}));
  let html=window.__TERRITORIO_TEMPLATE__;
  html=html.replace(/<script([^>]*?)\s+src="([^"]+)"([^>]*)>\s*<\/script>/g,(tag,before,path,after)=>values.has(path.split('?')[0])?'<script'+before+after+'>'+values.get(path.split('?')[0]).replace(/<\/script/gi,'<\\/script')+'<'+ '/script>':tag);
- html=html.replace(/<link\s+rel="stylesheet"\s+href="([^"]+)"\s*\/?\s*>/g,(tag,path)=>values.has(path.split('?')[0])?'<style>'+values.get(path)+'</style>':tag);
+ html=html.replace(/<link\s+rel="stylesheet"\s+href="([^"]+)"\s*\/?\s*>/g,(tag,path)=>values.has(path.split('?')[0])?'<style>'+values.get(path.split('?')[0])+'</style>':tag);
  for(const id of ['embeddedData','rainClimateReference','liveData','sourceStatusData']){const payload=document.getElementById(id).textContent.replace(/</g,'\\u003c');html=html.replace(new RegExp('(<script\\b[^>]*id="'+id+'"[^>]*>)[\\s\\S]*?(<\\/script\\s*>)'),(_,open,close)=>open+payload+close);}
  window.__TERRITORIO_TEMPLATE__=html;
 }
