@@ -1,8 +1,10 @@
 """Refresh public FEN sources without replacing validated history on source failure."""
 from __future__ import annotations
+import io
+from html.parser import HTMLParser
 import argparse, base64, concurrent.futures, copy, datetime as dt, gzip, hashlib, json, math, os, re, time, unicodedata
 from pathlib import Path
-from urllib.parse import urlencode, urlparse, parse_qs
+from urllib.parse import urlencode, urlparse, parse_qs, quote
 from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 from zoneinfo import ZoneInfo
 
@@ -118,7 +120,105 @@ def load_live(root=ROOT):
     if obj.get('schema') != 'fen-live/v1': raise ValueError('Formato de actualización incorrecto')
     return unpack(obj['data'])
 
+INDECI_REPORTS = 'https://portal.indeci.gob.pe/informe/reportes-preliminares-complementarios-emergencias/'
+
+
+class IndeciReportParser(HTMLParser):
+    """Only article headings and their own download link; exclude header carousels."""
+    def __init__(self):
+        super().__init__(); self.rows=[]; self.article=None; self.heading=False
+    def handle_starttag(self, tag, attrs):
+        attrs=dict(attrs)
+        if tag=='article': self.article={'title':'', 'pageUrl':'', 'pdfUrl':''}
+        if self.article is None: return
+        if tag=='h3': self.heading=True
+        if tag=='a':
+            if self.heading: self.article['pageUrl']=attrs.get('href','')
+            if 'btn-download' in attrs.get('class','').split(): self.article['pdfUrl']=attrs.get('href','')
+    def handle_data(self, value):
+        if self.article is not None and self.heading: self.article['title']+=value
+    def handle_endtag(self, tag):
+        if tag=='h3': self.heading=False
+        if tag=='article' and self.article is not None:
+            self.rows.append(self.article); self.article=None; self.heading=False
+
+
+def official_report_url(url, pdf=False):
+    p=urlparse(url)
+    return p.scheme=='https' and p.hostname=='portal.indeci.gob.pe' and not p.username and not p.password and (p.path.lower().endswith('.pdf') if pdf else p.path.startswith('/emergencias/'))
+
+
+def parse_indeci_reports(html, today):
+    parser=IndeciReportParser(); parser.feed(html)
+    rows=[]
+    for row in parser.rows:
+        title=' '.join(row['title'].split())
+        if not re.match(r'^(REPORTE (COMPLEMENTARIO|PRELIMINAR)|INFORME DE EMERGENCIA)',title,re.I): continue
+        match=re.search(r'(?<![0-9])([0-9]{1,2})/([0-9]{1,2})/(20[0-9]{2})(?![0-9])', title)
+        if not match or not official_report_url(row['pageUrl']) or not official_report_url(row['pdfUrl'],True): continue
+        day=dt.date(int(match[3]),int(match[2]),int(match[1])).isoformat()
+        if day>today: continue
+        rows.append({**row,'title':title,'publishedDate':day,'id':hashlib.sha256(row['pageUrl'].encode()).hexdigest()[:24]})
+    if not rows: raise ValueError('Portal INDECI sin reportes reconocidos; historial conservado')
+    return rows
+
+
+def update_indeci_reports(data, today):
+    previous=data.get('coenDocuments',{})
+    existing={row['id']:copy.deepcopy(row) for row in previous.get('reports',[])}
+    found={}; pages=0
+    # Bounded rolling window. Historical entries are retained, even when no longer listed.
+    for page in range(1,4):
+        url=INDECI_REPORTS if page==1 else INDECI_REPORTS+'page/'+str(page)+'/'
+        rows=parse_indeci_reports(fetch(url,timeout=15,retries=1).decode('utf-8'),today)
+        found.update({row['id']:row for row in rows}); pages+=1
+    for ident,row in found.items():
+        old=existing.get(ident,{})
+        if old and old.get('pdfUrl')!=row['pdfUrl']:
+            row['previousDocuments']=old.get('previousDocuments',[])+[{k:old[k] for k in ['pdfUrl','pdfSha256','downloadedAt'] if k in old}]
+        else: row={**old,**row}
+        row.update(lastSeen=today,state='pendiente_revision')
+        existing[ident]=row
+    pending=[r for r in sorted(existing.values(),key=lambda r:(r['publishedDate'],r['id']),reverse=True) if not r.get('pdfSha256')][:6]
+    def download(row):
+        try:
+            raw=fetch(quote(row['pdfUrl'],safe=':/%?=&'),timeout=15,retries=1)
+            if not raw.startswith(b'%PDF-'): raise ValueError('Documento no es PDF')
+            result={'pdfSha256':hashlib.sha256(raw).hexdigest(),'pdfBytes':len(raw),'downloadedAt':today,'downloadError':None}
+            from pypdf import PdfReader
+            reader=PdfReader(io.BytesIO(raw))
+            text='\n'.join(page.extract_text() or '' for page in reader.pages[:8])
+            result.update(textGzip=pack(text),textPages=min(8,len(reader.pages)),pdfPages=len(reader.pages))
+            # A code found in a document remains a candidate until the event is reconciled.
+            result['sinpadCandidates']=sorted(set(re.findall(r'SINPAD\s*(?:N[.°ºoO]*\s*)?[:#-]?\s*([0-9]{5,10})',text,re.I)))
+            return row['id'],result
+        except Exception as exc: return row['id'],{'downloadError':str(exc)[:250]}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        for ident,result in pool.map(download,pending): existing[ident].update(result)
+    reports=sorted(existing.values(),key=lambda r:(r['publishedDate'],r['id']),reverse=True)
+    data['coenDocuments']={'sourceUrl':INDECI_REPORTS,'queriedAt':today,'latestPublication':max(r['publishedDate'] for r in found.values()),'pagesChecked':pages,'reports':reports,'coverage':'Últimas tres páginas por consulta; archivo acumulativo de documentos, sin equivalencia con emergencias únicas.'}
+    return {'portalCut':today,'portalLatestPublication':data['coenDocuments']['latestPublication'],'portalReports':len(reports),'portalPdfDownloaded':sum(bool(r.get('pdfSha256')) for r in reports),'portalUrl':INDECI_REPORTS}
+
+
 def update_coen(data, today):
+    # Independent candidates keep API events and documentary evidence separate.
+    errors={}; api=None; portal=None
+    candidate=copy.deepcopy(data)
+    try:
+        api=update_coen_api(candidate,today)
+        data.clear(); data.update(candidate)
+    except Exception as exc: errors['api']=str(exc)
+    candidate=copy.deepcopy(data)
+    try:
+        portal=update_indeci_reports(candidate,today)
+        data.clear(); data.update(candidate)
+    except Exception as exc: errors['portal']=str(exc)
+    if api is None and portal is None: raise ValueError('COEN: '+dumps(errors))
+    result=api or {'cut':data['meta']['coenDate'],'records':len(data.get('events',[])),'url':COEN}
+    return {**result,**(portal or {}),'partial':bool(errors),'apiState':'ok' if api else 'error','portalState':'ok' if portal else 'error','sourceErrors':errors}
+
+
+def update_coen_api(data, today):
     raw = json.loads(fetch(COEN, timeout=20, retries=2))
     if raw.get('type') != 'FeatureCollection' or not raw.get('features'): raise ValueError('COEN vacío o sin GeoJSON válido')
     existing = {str(row['id']): row for row in data['events']}
@@ -464,3 +564,4 @@ def refresh(root=ROOT, only=None):
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--only',nargs='+',choices=['coen','ana','rain','hydro']);args=parser.parse_args()
     refresh(only=args.only)
+

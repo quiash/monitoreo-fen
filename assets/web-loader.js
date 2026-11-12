@@ -42,7 +42,21 @@ function renderSourceStatus(data){
  for(const [key,name] of Object.entries(names)){
   const value=status?.sources?.[key]||{},p=document.createElement('p');
   const state=value.state==='error'?'Último intento fallido; versión anterior conservada':(value.state==='partial'||key==='ana'&&Number.isFinite(value.updatedStates)&&value.updatedStates<data.ana.length)?'Actualización parcial; se conservan registros sin respuesta':value.state==='manual'?'Catálogo de referencia':value.state==='ok'?'Consulta automática completada':'Pendiente de consulta automática';
-  p.textContent=name+' · '+format(value.cut||fallback[key])+' · '+state+'.';host.appendChild(p);
+  p.textContent=name+' · '+format(value.cut||fallback[key])+' · '+state+'.';if(key==='coen'&&value.portalState==='ok')p.textContent+=' Portal documental consultado al '+format(value.portalCut)+'.'+(value.apiState==='error'?' API cartográfica sin respuesta.':'');host.appendChild(p);
+ }
+ const docs=data.coenDocuments;
+ if(docs?.reports?.length){
+  const section=document.createElement('section'),title=document.createElement('h3'),note=document.createElement('p');
+  title.textContent='Reportes recientes INDECI';
+  note.textContent='Publicaciones al '+format(docs.latestPublication)+'. Documentos pendientes de revisión; pueden referirse a una misma emergencia. La fecha corresponde a la publicación. No se añaden puntos ni cifras de daños al mapa.';
+  section.append(title,note);
+  const input=document.createElement('input');input.type='search';input.placeholder='Buscar lugar o peligro';input.setAttribute('aria-label','Buscar reportes INDECI');input.style.cssText='width:100%;margin:8px 0;padding:10px';
+  const list=document.createElement('div'),count=document.createElement('p');section.append(input,count,list);
+  const normalize=text=>text.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const safe=url=>{try{const u=new URL(url);return u.protocol==='https:'&&u.hostname==='portal.indeci.gob.pe'&&!u.username&&!u.password;}catch{return false;}};
+  const draw=()=>{list.replaceChildren();const matches=docs.reports.filter(row=>normalize(row.title).includes(normalize(input.value)));count.textContent=matches.length+' documentos · se muestran hasta 60';
+   for(const row of matches.slice(0,60)){const p=document.createElement('p'),a=document.createElement('a');a.textContent=row.title;a.href=safe(row.pdfUrl)?row.pdfUrl:docs.sourceUrl;a.target='_blank';a.rel='noopener noreferrer';p.append(a);list.append(p);}
+  };input.addEventListener('input',draw);draw();host.append(section);
  }
  if(status?.checkedAt){const p=document.createElement('p');p.textContent='Última comprobación: '+new Date(status.checkedAt).toLocaleString('es-PE',{timeZone:'America/Lima'})+' · hora Perú.';host.appendChild(p);}
  if(window.__siteUpdateWarning){const p=document.createElement('p');p.textContent=window.__siteUpdateWarning;host.appendChild(p);}
@@ -60,3 +74,4 @@ async function createPortableSiteTemplate(){
  for(const id of ['embeddedData','rainClimateReference','liveData','sourceStatusData']){const payload=document.getElementById(id).textContent.replace(/</g,'\\u003c');html=html.replace(new RegExp('(<script\\b[^>]*id="'+id+'"[^>]*>)[\\s\\S]*?(<\\/script\\s*>)'),(_,open,close)=>open+payload+close);}
  window.__TERRITORIO_TEMPLATE__=html;
 }
+
