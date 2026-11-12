@@ -31,6 +31,18 @@ function applySiteUpdates(data){
  for(const point of data.ana){point.currentSourceDate||=Object.prototype.hasOwnProperty.call(point.history||{},data.meta.anaDate)?data.meta.anaDate:originalCut;point.history={...history.get(point.id),...point.history};}
  return data;
 }
+function hydroUpdateSummary(data,status,format){
+ const errors=data.hydroHistory?.errors||[],failed=Number.isFinite(status.failedStations)?status.failedStations:errors.length;
+ let text=Number.isFinite(status.requested)&&Number.isFinite(status.records)?status.records+' de '+status.requested+' series consultadas'+(failed?'; '+failed+' sin respuesta válida':''):failed?'Consulta parcial; '+failed+' series sin respuesta válida':'Consulta automática completada';
+ const cut=status.cut||data.hydroHistory?.sourceDate;let current=0,older=0;
+ for(const station of Object.values(data.hydroHistory?.byStation||{}))for(const kind of ['caudal','level']){
+  const days=Object.entries(station[kind]?.days||{}).filter(([day,v])=>day<=cut&&Number.isFinite(v.value)).map(([day])=>day).sort();
+  if(days.length){if(days.at(-1)===cut)current++;else older++;}
+ }
+ if(current||older)text+='. '+current+' series con lectura al '+format(cut)+(older?'; '+older+' con última lectura anterior':'');
+ if(errors.length)text+='. Sin respuesta válida: '+errors.map(error=>{const station=data.hydro.find(r=>String(r.id)===String(error.id)),days=Object.keys(data.hydroHistory.byStation[error.id]?.[error.variable]?.days||{}).filter(day=>day<=cut).sort(),last=days.at(-1);return (station?.station||error.id)+' ('+(error.variable==='caudal'?'caudal':'nivel')+(last?'; último dato '+format(last):'')+')';}).join(', ');
+ return text;
+}
 function renderSourceStatus(data){
  const el=id=>document.getElementById(id),format=day=>day?new Date(day.slice(0,10)+'T12:00:00').toLocaleDateString('es-PE'):'Sin consulta válida';
  el('updateLabel').textContent='Datos al '+format(data.meta.updatedAt);
@@ -43,8 +55,9 @@ function renderSourceStatus(data){
  const head=document.createElement('h3');head.textContent='Estado de actualización';host.appendChild(head);
  for(const [key,name] of Object.entries(names)){
   const value=status?.sources?.[key]||{},p=document.createElement('p');
-  const state=value.state==='error'?'Último intento fallido; versión anterior conservada':(value.state==='partial'||key==='ana'&&Number.isFinite(value.updatedStates)&&value.updatedStates<data.ana.length)?'Actualización parcial; se conservan registros sin respuesta':value.state==='manual'?'Catálogo de referencia':value.state==='ok'?'Consulta automática completada':'Pendiente de consulta automática';
-  p.textContent=name+' · '+format(value.cut||fallback[key])+' · '+state+'.';if(key==='coen'&&value.portalState==='ok')p.textContent+=' Portal documental consultado al '+format(value.portalCut)+'.'+(value.apiState==='error'?' API cartográfica sin respuesta.':'');host.appendChild(p);
+  let state=value.state==='error'?'Último intento fallido; versión anterior conservada':(value.state==='partial'||key==='ana'&&Number.isFinite(value.updatedStates)&&value.updatedStates<data.ana.length)?'Actualización parcial; se conservan registros sin respuesta':value.state==='manual'?'Catálogo de referencia':value.state==='ok'?'Consulta automática completada':'Pendiente de consulta automática';
+  if(key==='hydro'&&['ok','partial'].includes(value.state))state=hydroUpdateSummary(data,value,format);
+  p.textContent=name+' · '+(key==='hydro'?'Corte ':'')+format(value.cut||fallback[key])+' · '+state+'.';if(key==='hydro'&&value.lastAttempt)p.textContent+=' Última consulta: '+new Date(value.lastAttempt).toLocaleString('es-PE',{timeZone:'America/Lima',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23'})+'.';if(key==='coen'&&value.portalState==='ok')p.textContent+=' Portal documental consultado al '+format(value.portalCut)+'.'+(value.apiState==='error'?' API cartográfica sin respuesta.':'');host.appendChild(p);
  }
  const docs=data.coenDocuments;
  if(docs?.reports?.length){

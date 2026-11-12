@@ -3,9 +3,11 @@
 const editorialUI={pane:'filters',filtersOpen:window.innerWidth>850,recordsOpen:false,recordsPinned:false,expanded:false,homes:null,restoreFilters:false};
 const editorialLayerIds=['layerEvents','layerAna','layerBarriers','layer_additional','layer_hydro','layer_rain'];
 const editorialViews={general:[1,1,1,1,1,1],emergencies:[1,0,0,0,0,0],interventions:[0,1,1,1,0,0],weather:[0,0,0,0,1,1]};
+function setEditorialLegends(open){document.querySelector('.map-area').classList.toggle('legends-open',open);$('legendToggle').setAttribute('aria-expanded',String(open));}
 function editorialResize(){if(!map)return;requestAnimationFrame(()=>{map.invalidateSize();});}
 function setEditorialSidebar(pane,open=true){
  editorialUI.pane=pane;editorialUI.filtersOpen=open;
+ if(open&&window.innerWidth<=850){setEditorialLegends(false);setEditorialRecords(false);}
  const sidebar=$('sidebar'),expanded=document.querySelector('.map-area').classList.contains('is-expanded');
  sidebar.hidden=!open;document.body.classList.toggle('filters-open',open);
  $('filterPane').hidden=pane!=='filters';$('layerPane').hidden=pane!=='layers';$('sidebarHeading').textContent=pane==='layers'?'Capas del mapa':'Filtros';
@@ -14,6 +16,7 @@ function setEditorialSidebar(pane,open=true){
  editorialResize();
 }
 function setEditorialRecords(open,pin=false){
+ if(open&&window.innerWidth<=850){setEditorialLegends(false);setEditorialSidebar(editorialUI.pane,false);}
  editorialUI.recordsOpen=open;if(pin)editorialUI.recordsPinned=open;
  const expanded=document.querySelector('.map-area').classList.contains('is-expanded');
  $('recordsPanel').hidden=expanded?false:!open;document.body.classList.toggle('records-open',open&&!expanded);
@@ -23,6 +26,7 @@ function setEditorialRecords(open,pin=false){
 }
 function syncEditorial(){
  if(!$('presentationDate'))return;
+ document.querySelector('.map-area').classList.toggle('period-mode',$('coenMode').value==='all');
  const day=$('dateEnd').value;$('presentationDate').textContent=day?fullDate(day):'';
  document.querySelectorAll('[data-view]').forEach(button=>button.setAttribute('aria-pressed',String(editorialViews[button.dataset.view].every((v,i)=>Boolean(v)===$(editorialLayerIds[i]).checked))));
  document.querySelectorAll('[data-layer-options]').forEach(el=>{el.hidden=!$('layer_'+el.dataset.layerOptions).checked;});
@@ -34,6 +38,8 @@ function syncEditorial(){
  $('histogram').querySelectorAll('[data-day]').forEach(button=>{button.onmouseenter=()=>{$('chartReadout').textContent=describe(button.dataset.day);};button.onmouseleave=()=>{$('chartReadout').textContent=describe($('dateEnd').value);};button.onfocus=button.onmouseenter;button.onblur=button.onmouseleave;});
 }
 function setupEditorial(){
+ $('legendToggle').onclick=()=>{const open=$('legendToggle').getAttribute('aria-expanded')!=='true';if(open&&window.innerWidth<=850){setEditorialSidebar(editorialUI.pane,false);setEditorialRecords(false);}setEditorialLegends(open);};$('closeLegends').onclick=()=>{setEditorialLegends(false);$('legendToggle').focus();};
+ matchMedia('(max-width:850px)').addEventListener('change',()=>{setEditorialLegends(false);setEditorialSidebar(editorialUI.pane,false);setEditorialRecords(false);editorialResize();});
  $('filterToggle').onclick=()=>setEditorialSidebar('filters',!(editorialUI.filtersOpen&&editorialUI.pane==='filters'));
  $('layersToggle').onclick=()=>setEditorialSidebar('layers',!(editorialUI.filtersOpen&&editorialUI.pane==='layers'));
  $('closeFilters').onclick=()=>setEditorialSidebar(editorialUI.pane,false);
@@ -79,7 +85,7 @@ setMapExpanded=function(expanded){
   const h=editorialUI.homes;if(h){h.toolbarParent.insertBefore(toolbar,h.toolbarNext?.parentNode===h.toolbarParent?h.toolbarNext:null);h.sidebarParent.insertBefore(sidebar,h.sidebarNext?.parentNode===h.sidebarParent?h.sidebarNext:null);editorialUI.homes=null;}
   setEditorialSidebar(editorialUI.pane,editorialUI.restoreFilters);setEditorialRecords(editorialUI.recordsOpen);
  }
- $('presentationToggle').textContent=expanded?'Salir de proyección':'Proyectar';$('presentationToggle').setAttribute('aria-pressed',String(expanded));syncEditorial();editorialResize();
+ $('presentationToggle').textContent=expanded?(window.innerWidth<=850?'Salir':'Salir de proyección'):'Proyectar';$('presentationToggle').setAttribute('aria-pressed',String(expanded));syncEditorial();editorialResize();
 };
 
 const temporalChartBeforeEditorial=temporalChart;
