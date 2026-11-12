@@ -1,0 +1,158 @@
+{
+  "referenceSource": "User-provided Referencia_PISCOp_12_meses_1991_2025(1).json",
+  "referenceSha256": "d194143cb28f8057ab54551ec9cc4d84c2d6ec4920867e2ac97167a77c74c52f",
+  "senamhiSource": "https://idesep.senamhi.gob.pe/geoserver/monitoreo_meteorologico/wcs",
+  "grids": [
+    {
+      "file": "data/rain-grid-2026-10-29.json",
+      "sha256": "853c138a9e1b7f0519b2661651d84e52e55550694178594af6f2c1e7fc3d2e3e",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-10-29",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 154.9
+    },
+    {
+      "file": "data/rain-grid-2026-10-30.json",
+      "sha256": "756b269ca46afa26fe25f59822ba4725acdee2a5ec19093c83d4e1c9bdbf4428",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-10-30",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 120.2
+    },
+    {
+      "file": "data/rain-grid-2026-10-31.json",
+      "sha256": "c26de4feb469b285bc31bb4a5a14d9f68f3b002487b3df733b084f7e8a75271a",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-10-31",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 67.7
+    },
+    {
+      "file": "data/rain-grid-2026-11-01.json",
+      "sha256": "a21bd360243d6f7b6a55474d00914e9f163ad3ab40455436d46c7edec24ebc57",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-11-01",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 62.7
+    },
+    {
+      "file": "data/rain-grid-2026-11-02.json",
+      "sha256": "de9e5541f2f0025a947abdd55d8d27b42dc3c181c15415108511b127d2a94bc9",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-11-02",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 110.3
+    },
+    {
+      "file": "data/rain-grid-2026-11-03.json",
+      "sha256": "e3bca0fa0ee383b84a70b6cc04a98d75de9f44d493f40b934004a05d04f20daf",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-11-03",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 82.9
+    },
+    {
+      "file": "data/rain-grid-2026-11-04.json",
+      "sha256": "6ed0419ac4b09cacf5438aebc3f0d773be42b971ca2d434994fb2fb81f9fde04",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-11-04",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 66.5
+    },
+    {
+      "file": "data/rain-grid-2026-11-05.json",
+      "sha256": "bdec8c9ac0cc1423ff23e5c805299a0bdfe450d081d1f1892234f061dde68835",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-11-05",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 112.5
+    },
+    {
+      "file": "data/rain-grid-2026-11-06.json",
+      "sha256": "bc93da66e36d1e20581d778e3de099214027ab3843827e454af7dd907cf34087",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-11-06",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 230.0
+    },
+    {
+      "file": "data/rain-grid-2026-11-07.json",
+      "sha256": "c0d80abd5fc4bc4422975a3f5870b644acc1548b00bf7c6f90e4588f49a83a47",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-11-07",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 93.0
+    },
+    {
+      "file": "data/rain-grid-2026-11-08.json",
+      "sha256": "e984e918963788ebd095a96951ad628c1b4286c656d69b6cdd0553d123a61598",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-11-08",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 44.2
+    },
+    {
+      "file": "data/rain-grid-2026-11-09.json",
+      "sha256": "0614d4ba890290a370880bb1d655c55f37a97b9189606ea7e13b9ccc58b4c9be",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-11-09",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 53.7
+    },
+    {
+      "file": "data/rain-grid-2026-11-10.json",
+      "sha256": "c8b43c1e0951f626d3ee52dbadca9309d43348bf558388b421a34fd209c606e8",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-11-10",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 48.8
+    },
+    {
+      "file": "data/rain-grid-2026-11-11.json",
+      "sha256": "7ed85d41ffee2802aeb083859b85dd43f794e8e9a8755f0507940d79b148e236",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-11-11",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 40.7
+    },
+    {
+      "file": "data/rain-grid-2026-11-12.json",
+      "sha256": "d190a0207afdeff48187ae391c54f022fd6d82075229cf704c8da4b1b0af6dad",
+      "contents": "Only numerical public SENAMHI precipitation grid; verified against downloaded source GeoTIFF",
+      "date": "2026-11-12",
+      "cells": 2836314,
+      "valid": 1252687,
+      "minMm": 0.0,
+      "maxMm": 23.1
+    }
+  ],
+  "liveChange": "Only 15 gridFile paths added; all existing public data unchanged."
+}

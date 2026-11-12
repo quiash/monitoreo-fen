@@ -81,9 +81,10 @@ window.localMapControls=(()=>{
   const payload=JSON.stringify(settings).replace(/</g,'\\u003c');
   return template.replace(pattern,(_,open,close)=>open+payload+close);
  }
- function saveConfigured(){
+ async function saveConfigured(){
   const value=el('mapKey').value.trim()||key;
   try{
+   if(typeof prepareRainGridArchive==='function')await prepareRainGridArchive();
    const html=makeConfiguredDocument(window.__TERRITORIO_TEMPLATE__,{key:value,mode:el('renderMode').value,street:el('streetStyle').value.trim(),satellite:el('satelliteStyle').value.trim(),autoConnect:true});
    const url=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'}));
    const a=document.createElement('a');a.href=url;a.download='Monitor_Territorial_COEN_ANA_Config.html';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);

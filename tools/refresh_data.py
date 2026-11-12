@@ -441,13 +441,34 @@ def rain_surface(raw, palette):
             return {'type':'FeatureCollection','features':features}, [src.width,src.height]
 
 
+def rain_grid(raw):
+    """Keep numerical daily values independently of the binned display polygons."""
+    import numpy as np
+    from rasterio.io import MemoryFile
+    from rasterio.warp import calculate_default_transform, reproject, Resampling
+    with MemoryFile(raw) as file:
+        with file.open() as src:
+            if src.count != 1 or not src.crs: raise ValueError('Raster de lluvia no reconocido')
+            affine, width, height = calculate_default_transform(src.crs, 'EPSG:4326', src.width, src.height, *src.bounds)
+            if width * height > 5000000: raise ValueError('Grilla diaria demasiado grande')
+            values = np.full((height, width), np.nan, dtype='float32')
+            original = src.read(1, masked=True).astype('float32').filled(np.nan)
+            original[~np.isfinite(original) | (original < 0)] = np.nan
+            reproject(original, values, src_transform=src.transform, src_crs=src.crs,
+                      src_nodata=np.nan, dst_transform=affine, dst_crs='EPSG:4326',
+                      dst_nodata=np.nan, resampling=Resampling.nearest)
+            if not np.isfinite(values).any(): raise ValueError('Grilla diaria vacía')
+            return {'schema':'fen-rain-grid/v1', 'units':'mm/24h', 'width':width, 'height':height,
+                    'transform':list(affine)[:6], 'values':[round(float(v),4) if np.isfinite(v) else None for v in values.flat]}
+
+
 def update_rain(data, today):
     published = rain_dates(fetch(RAIN_PAGE, timeout=15, retries=2).decode())
     days = []
     for rank, observation in sorted(published.items()):
         end = (dt.date.fromisoformat(observation)+dt.timedelta(days=1)).isoformat()
         # Reprocess the latest available day and backfill days missing from history.
-        if rank == 1 or end not in data['rainHistory']: days.append((rank,observation,end))
+        if rank == 1 or end not in data['rainHistory'] or not (data['rainHistory'][end].get('gridGzip') or data['rainHistory'][end].get('gridFile')): days.append((rank,observation,end))
     if len(days) > 7: days=days[:7] # bounded recovery after prolonged outage
     latest = None
     for rank,observation,end in reversed(days):
@@ -466,7 +487,9 @@ def update_rain(data, today):
         # Re-read the publication date to reject a source rollover during extraction.
         if rain_dates(fetch(RAIN_PAGE).decode()).get(rank)!=observation: raise ValueError('Cambio de fecha SENAMHI durante la descarga; se reintentará')
         geo,grid=rain_surface(raster,data['rainSurface']['palette'])
-        entry={'endDate':end,'observationDate':observation,'periodStart':observation+'T07:00:00-05:00','periodEnd':end+'T07:00:00-05:00','geojsonGzip':pack(geo),'encoding':'gzip-base64','stations':stations,'polygonCount':len(geo['features']),'sourceGridSize':grid,'sourceAccessDate':today,'sourceWCS':source_wcs,'sourceWFS':source_wfs,'maximumMm':max(s['value'] for s in stations)}
+        grid_file='data/rain-grid-'+end+'.json'
+        atomic_json(ROOT/grid_file, {'encoding':'gzip-base64','data':pack(rain_grid(raster))})
+        entry={'endDate':end,'observationDate':observation,'periodStart':observation+'T07:00:00-05:00','periodEnd':end+'T07:00:00-05:00','geojsonGzip':pack(geo),'gridFile':grid_file,'encoding':'gzip-base64','stations':stations,'polygonCount':len(geo['features']),'sourceGridSize':grid,'sourceAccessDate':today,'sourceWCS':source_wcs,'sourceWFS':source_wfs,'maximumMm':max(s['value'] for s in stations)}
         data['rainHistory'][end]=entry
         if rank==1: latest=entry
     if latest is None: raise ValueError('Sin capa de lluvia más reciente')

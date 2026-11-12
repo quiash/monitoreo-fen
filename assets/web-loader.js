@@ -9,7 +9,9 @@ async function prepareWebData(){
  await Promise.all(Array.from({length:Math.min(4,manifest.parts.length)},async()=>{while(cursor<manifest.parts.length){const i=cursor++;text[i]=await get(manifest.parts[i]);}}));
  const payload=text.join('');if(payload.length!==manifest.payloadCharacters)throw Error('La base descargada está incompleta.');
  embedded.textContent=JSON.stringify({encoding:'gzip-base64',data:payload});
- document.getElementById('rainClimateReference').textContent=await get(manifest.reference);
+ let reference=JSON.parse(await get(manifest.reference));
+ if(reference?.encoding==='gzip-base64-parts'){const chunks=await Promise.all(reference.parts.map(get));reference={encoding:'gzip-base64',data:chunks.join('')};}
+ document.getElementById('rainClimateReference').textContent=JSON.stringify(reference);
  window.__siteAssets=manifest.assets;
  window.__siteSnapshot=manifest.snapshotDate;
  for(const [path,id] of [['data/live.json','liveData'],['data/status.json','sourceStatusData']]){

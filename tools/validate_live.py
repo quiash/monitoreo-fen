@@ -13,6 +13,12 @@ for point in data['ana']:
     assert set(data['meta']['anaCuts']) <= set(point['history']) | {data['meta']['anaDate'], data['meta']['anaPreviousDate']}, point['id']
     for group in point.get('diary',[]):
         assert len({r['date'] for r in group['rows']})==len(group['rows']), (point['id'],group['key'])
+for day, entry in data['rainHistory'].items():
+    if entry.get('gridFile'):
+        path=ROOT/entry['gridFile']
+        assert path.is_file(), f'Grilla diaria ausente: {day}'
+        grid=json.loads(path.read_text())
+        assert grid['encoding']=='gzip-base64' and grid['data'], day
 status=json.loads((ROOT/'data/status.json').read_text())
 assert status['schema']=='fen-status/v1'
 for source in status['sources'].values():

@@ -246,8 +246,24 @@ setupControls=function(){
 
 const rainCache=new Map();let rainActiveDate=null,rainActiveEntry=null,rainActiveGeometry={type:'FeatureCollection',features:[]};
 function rainPeriod(entry){return entry?shortAnaDate(entry.observationDate||entry.periodStart.slice(0,10))+' 07:00 → '+shortAnaDate(entry.endDate||entry.periodEnd.slice(0,10))+' 07:00 h':'';}
+const rainGridLoads=new Map();
+async function loadRainGrid(day){
+ const entry=DATA.rainHistory[day];if(!entry||entry.gridGzip)return;
+ const archive=document.getElementById('rainGridArchive');if(archive){const grids=JSON.parse(archive.textContent);if(grids[day]){entry.gridGzip=grids[day];return;}}
+ if(!entry.gridFile)return;
+ if(!rainGridLoads.has(day))rainGridLoads.set(day,(async()=>{const response=await fetch(entry.gridFile,{cache:'no-cache'});if(!response.ok)throw Error('No se pudo cargar la grilla de lluvia.');const raw=await response.json();if(raw.encoding!=='gzip-base64'||!raw.data)throw Error('Grilla diaria incompatible.');entry.gridGzip=raw.data;})());
+ try{await rainGridLoads.get(day);}catch(e){rainGridLoads.delete(day);throw e;}
+}
+async function prepareRainGridArchive(){
+ const days=Object.keys(DATA.rainHistory).filter(day=>DATA.rainHistory[day].gridFile||DATA.rainHistory[day].gridGzip);let cursor=0;
+ await Promise.all(Array.from({length:4},async()=>{while(cursor<days.length)await loadRainGrid(days[cursor++]);}));
+ const archive=Object.fromEntries(days.map(day=>[day,DATA.rainHistory[day].gridGzip]));
+ const tag='<script id="rainGridArchive" type="application/json">'+JSON.stringify(archive)+'<'+ '/script>';
+ window.__TERRITORIO_TEMPLATE__=window.__TERRITORIO_TEMPLATE__.replace(/<script id="rainGridArchive"[^>]*>[\s\S]*?<\/script>/,'').replace('</body>',tag+'</body>');
+}
 function activateRain(day){
- if(rainActiveDate===day)return;rainActiveDate=day;rainActiveEntry=DATA.rainHistory[day]||null;
+ if(rainActiveDate===day)return;rainActiveDate=day;
+ if(DATA.rainHistory[day]?.gridFile&&!DATA.rainHistory[day].gridGzip)loadRainGrid(day).then(()=>{if(rainActiveDate===day)render();}).catch(e=>{$('rainRarityPeriod').textContent=e.message;});rainActiveEntry=DATA.rainHistory[day]||null;
  if(selected?.type==='rain')clearSelection(false);
  if(rainActiveEntry){if(!rainCache.has(day)){const raw=Uint8Array.from(atob(rainActiveEntry.geojsonGzip),c=>c.charCodeAt(0));rainCache.set(day,JSON.parse(pako.ungzip(raw,{to:'string'})));if(rainCache.size>2)rainCache.delete(rainCache.keys().next().value);}rainActiveGeometry=rainCache.get(day);DATA.rain=rainActiveEntry.stations;}
  else{rainActiveGeometry={type:'FeatureCollection',features:[]};DATA.rain=[];}
@@ -394,13 +410,14 @@ exportRiverHistory=function(){const rows=[];for(const r of DATA.hydro.filter(r=>
 
 let rainClimateReference=null;
 const rainClimateColors=['#bbd3da','#6fac9e','#d8bd76','#cc7d69','#8b395b','#99a1a8','#7c9997'];
-const rainClimateLabels=['Menos de 1 mm / 24 h','Hasta P90','Lluviosa (P90–P95)','Muy lluviosa (P95–P99)','Extremadamente lluviosa (>P99)','Sin cobertura histórica suficiente','Histórico disponible · P99 por recalcular'];
+const rainClimateLabels=['Sin lluvia ≥0,1 mm / 24 h','Hasta P90','Lluviosa (P90–P95)','Muy lluviosa (P95–P99)','Extremadamente lluviosa (>P99)','Sin cobertura histórica suficiente','Histórico disponible · P99 por recalcular'];
 function validateRainReference(r){
+ if(r?.encoding==='gzip-base64')r=JSON.parse(pako.ungzip(Uint8Array.from(atob(r.data),c=>c.charCodeAt(0)),{to:'string'}));
  if(!r||r.schema!=='fen-rain-reference/v1'||r.dataset!=='PISCOp v3.0'||r.units!=='mm/24h'||r.thresholdBasis!=='wet_days_ge_1mm_by_calendar_month'||r.status!=='computed_from_real_netcdf')throw Error('El archivo no es una referencia PISCOp compatible.');
- if(r.baselineStart!=='1991-01-01'||r.baselineEnd!=='2020-12-31'||r.minWetDays<100||r.minValidFraction<.8)throw Error('Periodo o cobertura histórica incompatibles.');
+ if(r.baselineStart!=='1991-01-01'||r.baselineEnd!=='2025-12-31'||r.minWetDays<100||r.minValidFraction<.8)throw Error('Periodo o cobertura histórica incompatibles.');
  for(const key of ['lat','lon']){const a=r[key];if(!Array.isArray(a)||a.length<2||a.length>1000||a.some(v=>!Number.isFinite(v)))throw Error('Coordenadas no válidas.');for(let i=1;i<a.length;i++)if(a[i]<=a[i-1]||Math.abs(a[i]-a[i-1]-.1)>.002)throw Error('La grilla debe ser regular de 0,10°.');}
  const n=r.lat.length*r.lon.length;if(n>100000)throw Error('Grilla demasiado grande.');
- for(const m of [10,11]){const s=r.months?.[String(m)];if(!s||s.expectedDays!==(m===10?930:900))throw Error('Fechas históricas incorrectas para el mes '+m+'.');for(const k of ['p90','p95','p99','validDays','wetDays'])if(!Array.isArray(s[k])||s[k].length!==n)throw Error('Serie histórica incompleta.');
+ for(let m=1;m<=12;m++){const s=r.months?.[String(m)];let expected=0;for(let y=1991;y<=2025;y++)expected+=new Date(Date.UTC(y,m,0)).getUTCDate();if(!s||s.expectedDays!==expected||!s.allDays)throw Error('Fechas históricas incorrectas para el mes '+m+'.');for(const k of ['p90','p95','p99','validDays','wetDays'])if(!Array.isArray(s[k])||s[k].length!==n)throw Error('Serie histórica incompleta.');
   if(s.allDays){if(s.allDays.basis!=='all_valid_days_by_calendar_month')throw Error('Referencia de todos los días no válida.');for(const k of ['p90','p95','p99'])if(!Array.isArray(s.allDays[k])||s.allDays[k].length!==n)throw Error('Referencia de zonas secas incompleta.');}
   for(let i=0;i<n;i++){if(!Number.isInteger(s.validDays[i])||!Number.isInteger(s.wetDays[i])||s.validDays[i]<0||s.validDays[i]>s.expectedDays||s.wetDays[i]<0||s.wetDays[i]>s.validDays[i])throw Error('Conteos históricos no válidos.');
    for(const [basis,q] of [['wet',[s.p90[i],s.p95[i],s.p99[i]]],...(s.allDays?[['all',[s.allDays.p90[i],s.allDays.p95[i],s.allDays.p99[i]]]]:[])]){if(q.every(v=>v===null))continue;if(!q.every(Number.isFinite)||q[0]<(basis==='wet'?1:0)||q[0]>q[1]||q[1]>q[2]||basis==='wet'&&s.wetDays[i]<100||s.validDays[i]<s.expectedDays*.8)throw Error('Umbrales o cobertura no válidos.');}
@@ -412,20 +429,19 @@ function rainClimateClass(r){
  const value=r.value,month=Number((r.periodStart||rainActiveEntry?.periodStart||'').slice(5,7)),ref=rainClimateReference;
  if(!ref)return {code:5,label:'Referencia histórica pendiente',month};const a=ref.lat,b=ref.lon,iy=Math.round((r.coords[0]-a[0])/.1),ix=Math.round((r.coords[1]-b[0])/.1),s=ref.months[String(month)];
  if(!s||iy<0||iy>=a.length||ix<0||ix>=b.length||Math.abs(r.coords[0]-a[iy])>.05001||Math.abs(r.coords[1]-b[ix])>.05001)return {code:5,label:rainClimateLabels[5],month};
- const i=iy*b.length+ix,coverage=s.validDays[i]>=s.expectedDays*.8;let q=[s.p90[i],s.p95[i],s.p99[i]],basis='wet';
- if(!q.every(Number.isFinite)&&s.allDays){q=[s.allDays.p90[i],s.allDays.p95[i],s.allDays.p99[i]];basis='all';}
- const has=coverage&&q.every(Number.isFinite);let code=coverage?6:5;if(value<1)code=0;else if(has)code=value>q[2]?4:value>q[1]?3:value>q[0]?2:1;
- return {code,label:rainClimateLabels[code],month,p90:q[0],p95:q[1],p99:q[2],basis,basisLabel:basis==='all'?'Todos los días del mes · zona seca':'Días húmedos ≥1 mm',wetDays:s.wetDays[i],validDays:s.validDays[i],expectedDays:s.expectedDays,wetFrequency:s.validDays[i]>0?s.wetDays[i]/s.validDays[i]*100:null,cell:[a[iy],b[ix]],supported:has,coverage,extreme:has&&value>=1&&value>q[2]};
+ const i=iy*b.length+ix,coverage=s.validDays[i]>=s.expectedDays*.8;const q=[s.allDays.p90[i],s.allDays.p95[i],s.allDays.p99[i]],basis='all';
+ const has=coverage&&q.every(Number.isFinite);let code=coverage?6:5;if(!Number.isFinite(value))code=5;else if(value<.1)code=0;else if(has)code=value>q[2]?4:value>q[1]?3:value>q[0]?2:1;
+ return {code,label:rainClimateLabels[code],month,p90:q[0],p95:q[1],p99:q[2],basis,basisLabel:basis==='all'?'Todos los días válidos del mes':'Días húmedos ≥1 mm',wetDays:s.wetDays[i],validDays:s.validDays[i],expectedDays:s.expectedDays,wetFrequency:s.validDays[i]>0?s.wetDays[i]/s.validDays[i]*100:null,cell:[a[iy],b[ix]],supported:has,coverage,extreme:has&&value>=.1&&value>q[2]};
 }
 function climateMode(){return $('rainClimateMode')?.value==='rarity';}
-function setRainReference(raw){rainClimateReference=validateRainReference(raw);intensityReferenceRevision++;intensitySurfaceCache.clear();DATA.rainClimateReference=rainClimateReference;const payload=JSON.stringify(raw).replace(/</g,'\\u003c');$('rainClimateReference').textContent=payload;if(window.__TERRITORIO_TEMPLATE__)window.__TERRITORIO_TEMPLATE__=window.__TERRITORIO_TEMPLATE__.replace(/(<script\b[^>]*id="rainClimateReference"[^>]*>)[\s\S]*?(<\/script\s*>)/,(_,open,close)=>open+payload+close);$('rainReferenceStatus').textContent='PISCOp 1991–2020 · octubre y noviembre'+(raw.months['11'].allDays?' · zonas secas incluidas.':' · recálculo de zonas secas pendiente.');$('saveRainReference').disabled=false;}
+function setRainReference(raw){raw=validateRainReference(raw);rainClimateReference=raw;intensityReferenceRevision++;intensitySurfaceCache.clear();DATA.rainClimateReference=rainClimateReference;const payload=JSON.stringify(raw).replace(/</g,'\\u003c');$('rainClimateReference').textContent=payload;if(window.__TERRITORIO_TEMPLATE__)window.__TERRITORIO_TEMPLATE__=window.__TERRITORIO_TEMPLATE__.replace(/(<script\b[^>]*id="rainClimateReference"[^>]*>)[\s\S]*?(<\/script\s*>)/,(_,open,close)=>open+payload+close);$('rainReferenceStatus').textContent='PISCOp 1991–2025 · 12 meses'+(raw.months['11'].allDays?' · zonas secas incluidas.':' · recálculo de zonas secas pendiente.');$('saveRainReference').disabled=false;}
 const candidatesBeforeRainClimate=mapSymbolCandidates;
 mapSymbolCandidates=function(data,visible,snapshot){const out=candidatesBeforeRainClimate(data,visible,snapshot);if(climateMode())for(const x of out)if(x.type==='rain'){const c=rainClimateClass(x.record);x.rainClimate=c;x.kind='rain-climate-'+c.code;x.color=rainClimateColors[c.code];x.tip=title(x.record.name)+' · '+decimal(x.record.value)+' mm / 24 h\n'+c.label+(c.supported?'\nP99 '+decimal(c.p99)+' mm · '+c.basisLabel:'')+'\n'+(c.coverage?c.validDays+' días históricos válidos':'Sin cobertura suficiente');}return out;};
 const detailBeforeRainClimate=renderDetail;
 renderDetail=function(){detailBeforeRainClimate();if(selected?.type==='rain'){const r=DATA.rain.find(x=>x.id===selected.id);if(!r)return;const c=rainClimateClass(r);let h='<section class="rain-climate-detail"><h3>Intensidad frente al histórico local</h3><span class="river-classification" style="border-color:'+rainClimateColors[c.code]+'">'+esc(c.label)+'</span>';
- if(rainClimateReference){h+='<p class="diary-note">PISCOp 1991–2020 · mes '+c.month+' · celda de unos 10 km.</p>';
+ if(rainClimateReference){h+='<p class="diary-note">PISCOp 1991–2025 · mes '+c.month+' · celda de unos 10 km.</p>';
   if(c.validDays!==undefined)h+='<dl><dt>Cobertura histórica</dt><dd>'+c.validDays+' de '+c.expectedDays+' días válidos</dd><dt>Días con ≥1 mm</dt><dd>'+c.wetDays+' · '+decimal(c.wetFrequency)+' %</dd></dl>';
-  if(c.supported)h+='<dl><dt>Referencia utilizada</dt><dd>'+esc(c.basisLabel)+'</dd><dt>P90 / P95 / P99 · mm / 24 h</dt><dd>'+[c.p90,c.p95,c.p99].map(v=>decimal(v)).join(' / ')+'</dd></dl>'+(c.basis==='all'?'<p class="diary-note">P99 de todos los días: incluye días secos. Se destacan excesos con lluvia ≥1 mm; no equivale al P99 de días húmedos.</p>':'');
+  if(c.supported)h+='<dl><dt>Referencia utilizada</dt><dd>'+esc(c.basisLabel)+'</dd><dt>P90 / P95 / P99 · mm / 24 h</dt><dd>'+[c.p90,c.p95,c.p99].map(v=>decimal(v)).join(' / ')+'</dd></dl>'+(c.basis==='all'?'<p class="diary-note">P99 de todos los días: incluye días secos. Se destacan excesos con lluvia ≥0,1 mm; no equivale al P99 de días húmedos.</p>':'');
   else if(c.coverage)h+='<p class="diary-note">'+(c.wetDays===0?'Histórico seco: ningún día alcanzó 1 mm.':'Muestra húmeda escasa: '+c.wetDays+' días con ≥1 mm.')+' Hay datos históricos; el JSON actual no contiene sus percentiles de todos los días. Regenere la referencia con el procesador actualizado.</p>';
   else h+='<p class="diary-note">Cobertura histórica inferior al 80 % o fuera de la grilla.</p>';
   h+='<p class="diary-note">Comparación orientativa de una estación con una celda histórica. No es una alerta oficial.</p>';
@@ -438,8 +454,7 @@ rainSurface=function(view){rainSurfaceBeforeExtreme(view);drawExtremeRain(view);
 const intensitySurfaceCache=new Map();let intensityReferenceRevision=0;
 const intensityStops=[[0,[187,211,218]],[1,[111,172,158]],[2,[216,189,118]],[3,[204,125,105]],[4,[139,57,91]]];
 function rainIntensityScore(value,c){
- if(!c.supported||!Number.isFinite(value)||value<0)return null;
- if(value<1)return Math.min(.65,value*.65);
+ if(!c.supported||!Number.isFinite(value)||value<.1)return null;
  const q=[c.p90,c.p95,c.p99];
  if(value<=q[0])return q[0]>0?value/q[0]:0;
  if(value<=q[1])return 1+(value-q[0])/Math.max(1e-9,q[1]-q[0]);
@@ -447,29 +462,32 @@ function rainIntensityScore(value,c){
  return Math.min(4,3+(value-q[2])/Math.max(q[2],1));
 }
 function intensityRGB(score){const k=Math.min(3,Math.max(0,Math.floor(score))),f=Math.min(1,Math.max(0,score-k)),a=intensityStops[k][1],b=intensityStops[k+1][1];return a.map((v,i)=>Math.round(v+(b[i]-v)*f));}
-function intensityHull(points){const sorted=points.map(p=>[p.lon,p.lat]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]);if(sorted.length<3)return[];const cross=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);const chain=rows=>{const out=[];for(const p of rows){while(out.length>=2&&cross(out.at(-2),out.at(-1),p)<=0)out.pop();out.push(p);}return out;};return chain(sorted).slice(0,-1).concat(chain([...sorted].reverse()).slice(0,-1));}
-function intensityInside(x,y,hull){if(hull.length<3)return false;for(let i=0;i<hull.length;i++){const a=hull[i],b=hull[(i+1)%hull.length];if((b[0]-a[0])*(y-a[1])-(b[1]-a[1])*(x-a[0])< -1e-10)return false;}return true;}
-function intensityField(points){
- const bins=new Map(),hull=intensityHull(points),key=(a,b)=>a+','+b;
- for(const p of points){const k=key(Math.floor(p.lon/.8),Math.floor(p.lat/.8));if(!bins.has(k))bins.set(k,[]);bins.get(k).push(p);}
- return (lat,lon)=>{if(!intensityInside(lon,lat,hull))return null;const bx=Math.floor(lon/.8),by=Math.floor(lat/.8),nearest=[],cos=Math.cos(lat*Math.PI/180);
-  for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++)for(const p of bins.get(key(bx+dx,by+dy))||[]){const d=((lon-p.lon)*111.2*cos)**2+((lat-p.lat)*111.2)**2;if(d>8100)continue;let j=0;while(j<nearest.length&&nearest[j].d<d)j++;nearest.splice(j,0,{d,score:p.score});if(nearest.length>4)nearest.pop();}
-  if(nearest.length<3||nearest[0].d>2500)return null;
-  const w=nearest.map(p=>1/Math.max(p.d,.01)),sum=w.reduce((a,b)=>a+b,0),score=nearest.reduce((s,p,i)=>s+p.score*w[i],0)/sum;
-  // Edge fading affects opacity only; the scale remains the interpolated intensity.
-  return {score,alpha:Math.min(1,Math.max(0,(50-Math.sqrt(nearest[0].d))/12))};
- };
+// Sample values without spreading rainfall into dry or missing grid cells.
+function rainGridValue(grid,lat,lon){
+ const [dx,,west,,dy,north]=grid.transform,col=(lon-west)/dx-.5,row=(lat-north)/dy-.5;
+ const cx=Math.floor(col+.5),cy=Math.floor(row+.5);
+ if(cx<0||cy<0||cx>=grid.width||cy>=grid.height)return null;
+ const center=grid.values[cy*grid.width+cx];if(!Number.isFinite(center)||center<.1)return null;
+ const x0=Math.floor(col),y0=Math.floor(row),fx=col-x0,fy=row-y0;let sum=0,weight=0;
+ for(let y=0;y<2;y++)for(let x=0;x<2;x++){const ix=x0+x,iy=y0+y;if(ix<0||iy<0||ix>=grid.width||iy>=grid.height)continue;const v=grid.values[iy*grid.width+ix],w=(x?fx:1-fx)*(y?fy:1-fy);if(Number.isFinite(v)&&v>=.1){sum+=v*w;weight+=w;}}
+ return weight?sum/weight:center;
 }
 function buildIntensitySurface(){
- const rows=(filtered?.rain||[]).filter(r=>r.coords&&r.coords.every(Number.isFinite));const points=rows.map(r=>{const c=rainClimateClass(r);return {lat:r.coords[0],lon:r.coords[1],score:rainIntensityScore(r.value,c),id:r.id,value:r.value};}).filter(p=>p.score!==null);
- const key=intensityReferenceRevision+'|'+rainActiveDate+'|'+points.map(p=>p.id+':'+p.value).join(',');if(intensitySurfaceCache.has(key))return intensitySurfaceCache.get(key);
- if(points.length<3)return null;const south=Math.min(...points.map(p=>p.lat)),north=Math.max(...points.map(p=>p.lat)),west=Math.min(...points.map(p=>p.lon)),east=Math.max(...points.map(p=>p.lon));if(north-south<.02||east-west<.02)return null;
- const merc=lat=>Math.log(Math.tan(Math.PI/4+lat*Math.PI/360)),inv=y=>(2*Math.atan(Math.exp(y))-Math.PI/2)*180/Math.PI,top=merc(north),bottom=merc(south),width=Math.max(2,Math.ceil((east-west)/.035)),height=Math.max(2,Math.ceil((north-south)/.035));const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;const ctx=canvas.getContext('2d');if(!ctx)return null;const image=ctx.createImageData(width,height),sample=intensityField(points);let supported=0;
- for(let y=0;y<height;y++){const lat=inv(top-(y+.5)/height*(top-bottom));for(let x=0;x<width;x++){const lon=west+(x+.5)/width*(east-west),local=rainClimateClass({coords:[lat,lon],value:1,periodStart:rainActiveEntry?.periodStart});if(!local.supported)continue;const v=sample(lat,lon);if(!v)continue;const i=(y*width+x)*4,rgb=intensityRGB(v.score);image.data[i]=rgb[0];image.data[i+1]=rgb[1];image.data[i+2]=rgb[2];image.data[i+3]=Math.round(220*v.alpha);supported++;}}
+ if(!rainActiveEntry?.gridGzip)return null;
+ const key=intensityReferenceRevision+'|'+rainActiveDate+'|'+rainActiveEntry.gridGzip.length;
+ if(intensitySurfaceCache.has(key))return intensitySurfaceCache.get(key);
+ const grid=JSON.parse(pako.ungzip(Uint8Array.from(atob(rainActiveEntry.gridGzip),c=>c.charCodeAt(0)),{to:'string'}));
+ const [dx,,west,,dy,north]=grid.transform,east=west+grid.width*dx,south=north+grid.height*dy;
+ const merc=lat=>Math.log(Math.tan(Math.PI/4+lat*Math.PI/360)),inv=y=>(2*Math.atan(Math.exp(y))-Math.PI/2)*180/Math.PI,top=merc(north),bottom=merc(south);
+ const width=Math.min(1800,Math.max(grid.width,Math.ceil((east-west)/.025))),height=Math.min(1800,Math.max(grid.height,Math.ceil((north-south)/.025)));
+ const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;const ctx=canvas.getContext('2d');if(!ctx)return null;
+ const image=ctx.createImageData(width,height);let supported=0;
+ for(let y=0;y<height;y++){const lat=inv(top-(y+.5)/height*(top-bottom));for(let x=0;x<width;x++){const lon=west+(x+.5)/width*(east-west),value=rainGridValue(grid,lat,lon);if(value===null)continue;
+ const c=rainClimateClass({coords:[lat,lon],value,periodStart:rainActiveEntry.periodStart}),score=rainIntensityScore(value,c);if(score===null)continue;
+ const i=(y*width+x)*4,rgb=intensityRGB(score);image.data[i]=rgb[0];image.data[i+1]=rgb[1];image.data[i+2]=rgb[2];image.data[i+3]=220;supported++;}}
  ctx.putImageData(image,0,0);
- // Smooth resampling of the computed surface; no station-centred symbols or kernels.
- const texture=document.createElement('canvas');texture.width=width*3;texture.height=height*3;const smooth=texture.getContext('2d');smooth.imageSmoothingEnabled=true;smooth.imageSmoothingQuality='high';smooth.drawImage(canvas,0,0,texture.width,texture.height);
- const result={url:texture.toDataURL('image/png'),bounds:[[south,west],[north,east]],coordinates:[[west,north],[east,north],[east,south],[west,south]],stationCount:points.length,supportedPixels:supported,key};intensitySurfaceCache.set(key,result);while(intensitySurfaceCache.size>2)intensitySurfaceCache.delete(intensitySurfaceCache.keys().next().value);return result;
+ const result={url:canvas.toDataURL('image/png'),bounds:[[south,west],[north,east]],coordinates:[[west,north],[east,north],[east,south],[west,south]],supportedPixels:supported,key};
+ intensitySurfaceCache.set(key,result);while(intensitySurfaceCache.size>2)intensitySurfaceCache.delete(intensitySurfaceCache.keys().next().value);return result;
 }
 function drawExtremeRain(view){
  const show=climateMode()&&$('layer_rain')?.checked&&$('rainExtremeHeat')?.checked&&!!rainActiveEntry,opacity=Number($('rainOpacity')?.value||60)/100,surface=show?buildIntensitySurface():null;
@@ -481,21 +499,21 @@ function drawExtremeRain(view){
  }else{
   const m=view.engine;if(!view.styleReady)return;
   if(surface){if(!m.getSource('rain-intensity'))m.addSource('rain-intensity',{type:'image',url:surface.url,coordinates:surface.coordinates});else if(view.intensityKey!==surface.key)m.getSource('rain-intensity').updateImage({url:surface.url,coordinates:surface.coordinates});view.intensityKey=surface.key;
-   if(!m.getLayer('rain-intensity'))m.addLayer({id:'rain-intensity',type:'raster',source:'rain-intensity',paint:{'raster-opacity':opacity,'raster-resampling':'linear','raster-fade-duration':0}},m.getLayer('territorio-lines')?'territorio-lines':undefined);
+   if(!m.getLayer('rain-intensity'))m.addLayer({id:'rain-intensity',type:'raster',source:'rain-intensity',paint:{'raster-opacity':opacity,'raster-resampling':'nearest','raster-fade-duration':0}},m.getLayer('territorio-lines')?'territorio-lines':undefined);
   }
   if(m.getLayer('rain-intensity')){m.setPaintProperty('rain-intensity','raster-opacity',opacity);m.setLayoutProperty('rain-intensity','visibility',surface?'visible':'none');}
  }
 }
 
 const renderBeforeRainClimate=render;
-render=function(){renderBeforeRainClimate();const mode=climateMode(),show=$('layer_rain').checked;$('rainKey').hidden=mode||!show;$('rainRarityKey').hidden=!mode||!show;$('rainOpacity').disabled=false;$('rainReferenceStatus').textContent=rainClimateReference?'PISCOp 1991–2020 · octubre y noviembre'+(rainClimateReference.months['11'].allDays?' · zonas secas incluidas.':' · recálculo de zonas secas pendiente.'):'Referencia histórica pendiente de cargar.';$('rainRarityPeriod').textContent=rainActiveEntry?rainPeriod(rainActiveEntry):'Sin observación para la fecha';$('rainRarityBasis').textContent=rainClimateReference?'PISCOp 1991–2020 · mismo mes · superficie interpolada':'Sin referencia cargada';const classes=filtered.rain.map(rainClimateClass);$('rainRarityCounts').textContent=mode?classes.filter(c=>c.coverage).length+' con histórico · '+classes.filter(c=>c.supported).length+' con P99 · '+classes.length+' estaciones':'';
+render=function(){renderBeforeRainClimate();const mode=climateMode(),show=$('layer_rain').checked;$('rainKey').hidden=mode||!show;$('rainRarityKey').hidden=!mode||!show;$('rainOpacity').disabled=false;$('rainReferenceStatus').textContent=rainClimateReference?'PISCOp 1991–2025 · 12 meses'+(rainClimateReference.months['11'].allDays?' · zonas secas incluidas.':' · recálculo de zonas secas pendiente.'):'Referencia histórica pendiente de cargar.';$('rainRarityPeriod').textContent=rainActiveEntry?rainPeriod(rainActiveEntry)+(rainActiveEntry.gridGzip?'':' · sin grilla diaria para comparar'):'Sin observación para la fecha';$('rainRarityBasis').textContent=rainClimateReference?'PISCOp 1991–2025 · mismo mes · grilla diaria SENAMHI':'Sin referencia cargada';const classes=filtered.rain.map(rainClimateClass);$('rainRarityCounts').textContent=mode?classes.filter(c=>c.coverage).length+' con histórico · '+classes.filter(c=>c.supported).length+' con P99 · '+classes.length+' estaciones':'';
  $('rainExtremeKey').hidden=true;$('rainExtremePeriod').textContent=rainActiveEntry?rainPeriod(rainActiveEntry)+' · hora Perú':'Sin observación para la fecha';$('rainExtremeCount').textContent=extremeRainPoints().length+' estaciones >P99 · '+classes.filter(c=>c.supported).length+' evaluables';
 };
 const controlsBeforeRainClimate=setupControls;
 setupControls=function(){controlsBeforeRainClimate();try{const stored=JSON.parse($('rainClimateReference').textContent||'null');if(stored)setRainReference(stored);}catch(e){$('rainReferenceStatus').textContent=e.message;}
  $('rainClimateMode').value=rainClimateReference?'rarity':'observed';if(rainClimateReference)$('rainStations').checked=true;$('rainExtremeHeat').checked=true;$('rainExtremeHeat').onchange=()=>render();
- $('rainClimateMode').onchange=()=>{if(climateMode())$('rainStations').checked=true;render();};$('rainReferenceFile').onchange=async()=>{const file=$('rainReferenceFile').files?.[0];if(!file)return;try{if(file.size>15000000)throw Error('El archivo de referencia debe ser menor de 15 MB.');setRainReference(JSON.parse(await file.text()));$('rainClimateMode').value='rarity';$('rainStations').checked=true;render();}catch(e){$('rainReferenceStatus').textContent=e.message;}};
- $('saveRainReference').onclick=()=>{if(!rainClimateReference)return;saveDiaryFile(window.__TERRITORIO_TEMPLATE__,'Monitoreo_FEN_26-27_con_referencia_PISCO.html','text/html;charset=utf-8');};
+ $('rainClimateMode').onchange=()=>{if(climateMode())$('rainStations').checked=true;render();};$('rainReferenceFile').onchange=async()=>{const file=$('rainReferenceFile').files?.[0];if(!file)return;try{if(file.size>35000000)throw Error('El archivo de referencia debe ser menor de 35 MB.');setRainReference(JSON.parse(await file.text()));$('rainClimateMode').value='rarity';$('rainStations').checked=true;render();}catch(e){$('rainReferenceStatus').textContent=e.message;}};
+ $('saveRainReference').onclick=async()=>{if(!rainClimateReference)return;const button=$('saveRainReference');button.disabled=true;try{await prepareRainGridArchive();saveDiaryFile(window.__TERRITORIO_TEMPLATE__,'Monitoreo_FEN_26-27_con_referencia_PISCO.html','text/html;charset=utf-8');}catch(e){$('rainReferenceStatus').textContent=e.message;}finally{button.disabled=false;}};
  const resetBefore=$('reset').onclick;$('reset').onclick=()=>{$('rainClimateMode').value=rainClimateReference?'rarity':'observed';$('rainExtremeHeat').checked=true;resetBefore();if(rainClimateReference){$('rainStations').checked=true;render();}};
  $('rainRarityLegend').innerHTML=['Hasta P90','Lluviosa · P90–P95','Muy lluviosa · P95–P99','Extremadamente lluviosa · >P99'].map((label,i)=>'<span><i style="background:'+['#6fac9e','#d8bd76','#cc7d69','#8b395b'][i]+'"></i>'+label+'</span>').join('');
 };
