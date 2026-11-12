@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 LIMA = ZoneInfo('America/Lima')
 ANA = 'https://snirh.ana.gob.pe/apiIntervencion/api/Reporte/datos/'
+ANA_CATALOG = 'https://snirhgeo.ana.gob.pe/server/rest/services/PC_Priorizados_2026/Puntos_Criticos_Final_Priorizados_2026_Automatizado/FeatureServer/0/query'
 COEN = 'https://coen.indeci.gob.pe/api/v2/mer/emergencies/geojson-last-emergencies?daysAgo=30'
 RAIN_PAGE = 'https://www.senamhi.gob.pe/mapas/mapa-monitoreo-meteo/monitoreo-precipitacion.php'
 WFS = 'https://idesep.senamhi.gob.pe/geoserver/monitoreo_meteorologico/ows'
@@ -151,7 +152,7 @@ def update_coen(data, today):
     return {'cut': today, 'records': len(raw['features']), 'changed': changed, 'latestObservation': max(row['properties'].get('Fecha de ocurrencia', '') for row in raw['features'])[:10], 'url': COEN}
 
 
-def update_ana(data, today):
+def update_ana_reports(data, today):
     daily_raw = get_json(ANA+'avancediario'); daily = report_rows(daily_raw)
     general_raw = get_json(ANA+'general'); general = report_rows(general_raw)
     grouped = {}; current = {}
@@ -161,7 +162,7 @@ def update_ana(data, today):
     for row in general: current.setdefault(code(row['CODIGO_INTERVENCION']), []).append(row)
     catalog = {}
     for point in data['ana']: catalog.setdefault(code(point['current']['CODIGO']), []).append(point)
-    matched = current_legal = previous_only = updated = 0; excluded = []; matched_dates = []
+    matched = current_legal = previous_only = updated = general_matched = 0; excluded = []; matched_dates = []
     fields = {'META':'META_KM','AVANCEKM':'TOTAL_AVANCE_KM','AVANCEKMPOR':'TOTAL_PCT_AVANCE_KM','VOLUMEN_M3':'META_M3','AVANCEDESCOLMA':'TOTAL_AVANCE_M3','AVANCEDESCOLMAPOR':'TOTAL_PCT_AVANCE_M3','POB':'HABITANTES','VIVIENDAS':'VIVIENDA','CULTIVO':'AREA_CULTIVO'}
     for point in data['ana']:
         point.setdefault('history', {}).setdefault(data['meta']['anaDate'], copy.deepcopy(point['current']))
@@ -174,7 +175,8 @@ def update_ana(data, today):
         if len(catalog[key]) != 1: continue
         legal = norm(point['current'].get('DECRETO'))
         candidates = [r for r in current.get(key, []) if norm(r.get('DECRETO_URGENCIA')) == legal]
-        if len(candidates) == 1:
+        if len(candidates) == 1: general_matched += 1
+        if len(candidates) == 1 and point.get('currentSource') != 'ana_feature_server':
             r = candidates[0]; before = copy.deepcopy(point['current']); after = copy.deepcopy(before)
             for target, source in fields.items():
                 if r.get(source) is not None: after[target] = number(r[source])
@@ -210,12 +212,102 @@ def update_ana(data, today):
         matching = [g for g in groups.values() if g['matchesCurrentLegal']]
         point['diaryCurrentKey'] = max(matching, key=lambda g:(g['rows'][-1]['date'] if g['rows'] else '',number(g['period']) or -1))['key'] if matching else None
         current_legal += bool(matching); previous_only += not bool(matching)
-    if matched < 250 or updated < 250: raise ValueError(f'Vinculación ANA insuficiente: {matched} diarios, {updated} estados')
+    if matched < 250 or general_matched < 250: raise ValueError(f'Vinculación ANA insuficiente: {matched} diarios, {updated} estados')
     diary = data['anaDiary']
     diary.update(sourceFilename='API_ANA_avancediario_'+today+'.json',sourceDate=today,queryTimestamp=daily_raw.get('timestamp'),sourceRowCount=len(daily),matchedPoints=matched,currentLegalPoints=current_legal,unmatchedPoints=len(data['ana'])-matched,previousOnlyPoints=previous_only,futureExcluded=excluded,originalGzip=pack(daily_raw))
     diary.setdefault('snapshots', {})[today] = {'filename':diary['sourceFilename'],'timestamp':daily_raw.get('timestamp'),'originalGzip':diary['originalGzip']}
     data['meta'].update(anaPreviousDate=max((cut for cut in data['meta']['anaCuts'] if cut < today), default=data['meta']['anaDate']),anaDate=today,anaCuts=sorted(set(data['meta']['anaCuts']+[today]),reverse=True))
     return {'cut':today,'records':len(daily),'matched':matched,'updatedStates':updated,'partial':updated<len(data['ana']),'latestObservation':max(matched_dates),'url':ANA+'avancediario'}
+
+
+# ArcGIS publishes one row per catalog point. Its *_ACUMULADO_* and
+# *_ATENDIDOS fields repeat totals across rows; only per-point fields belong
+# in the current ficha. Preserve the complete response as source evidence.
+ANA_CATALOG_FIELDS = {
+    'SECTOR', 'RUTA', 'VIDEO', 'TRANSMISION', 'GALERIA', 'AAA', 'ALA', 'CUENCA',
+    'FUENTE_NATURAL', 'NOMBRE', 'MARGEN', 'NOMBRE_DE_ACTIVIDAD', 'ESTADO', 'UN',
+    'META', 'AVANCEKM', 'AVANCEKMPOR', 'VOLUMEN_M3', 'AVANCEDESCOLMA',
+    'AVANCEDESCOLMAPOR', 'COSTO_DIRECTO', 'IGV', 'GASTOS_GENERALES_10_CD',
+    'UTILIDAD_5_CD', 'SUPERVISION_3_CD', 'COSTO_DE_FICHA_DEFINITIVA',
+    'COSTO_DE_LA_ACTIVIDAD', 'AVANCEPRESUPUESTO', 'AVANCEPRESUPUESTOPOR',
+    'POB', 'VIVIENDAS', 'SUPERFICIE_HA', 'TIPO_DE_CULTIVOS', 'PELIGRO',
+    'NIVEL_DE_PELIGRO', 'RESPONSABLE', 'RES', 'RESPONSABLE_MIDAGRI',
+    'ENTIDAD', 'CULTIVO', 'FECHAINGRESO', 'FECHAFIN', 'FEC_AVANCE',
+    'FLG_GALERIA', 'COOPERACION', 'CODCUENCA', 'entidad_ejecuto',
+    'sustento_ejecuto', 'comentario_ejecuto'
+}
+
+
+def update_ana_catalog(data, today):
+    params = {'where':'1=1', 'outFields':'*', 'returnGeometry':'false', 'f':'json'}
+    url = ANA_CATALOG + '?' + urlencode(params)
+    raw = json.loads(fetch(url, timeout=20, retries=1))
+    if raw.get('error') or raw.get('exceededTransferLimit'):
+        raise ValueError('Catálogo ANA con error o respuesta truncada')
+    rows = [f.get('attributes', {}) for f in raw.get('features', [])]
+    # A changed inventory requires reconciliation rather than silently adding
+    # or dropping fichas from the established 536-point universe.
+    if len(rows) != len(data['ana']) or len(rows) != 536:
+        raise ValueError(f'Catálogo ANA incompleto o distinto: {len(rows)} de 536')
+    index = {}
+    for row in rows:
+        ident = str(row.get('IDE_INTERVENCION'))
+        if ident in index: raise ValueError('ID de intervención duplicado en catálogo ANA')
+        index[ident] = row
+    matches = []; observation_dates = []
+    for point in data['ana']:
+        old = point['current']; row = index.get(str(point['id']))
+        if not row or str(row.get('IDPC')) != str(old.get('IDPC')) or code(row.get('CODIGO')) != code(old.get('CODIGO')):
+            raise ValueError('Identidad de ficha ANA distinta: '+str(point['id']))
+        for field in ['nombdep', 'nombprov', 'nombdistri', 'DECRETO']:
+            if norm(row.get(field)) != norm(old.get(field)):
+                raise ValueError('Territorio o norma ANA distinta: '+str(point['id']))
+        observed = row.get('FEC_AVANCE')
+        if observed:
+            day = dt.datetime.strptime(observed, '%d/%m/%Y').date().isoformat()
+            if day > today: raise ValueError('Fecha futura en catálogo ANA')
+            observation_dates.append(day)
+        matches.append((point, row))
+    if not observation_dates: raise ValueError('Catálogo ANA sin fechas de avance')
+    for point, row in matches:
+        old = copy.deepcopy(point['current'])
+        point.setdefault('history', {}).setdefault(data['meta']['anaDate'], old)
+        point['history'].setdefault(data['meta']['anaPreviousDate'], copy.deepcopy(point.get('previous', old)))
+        after = copy.deepcopy(old)
+        # Null means unpublished, not zero. Explicit zero remains valid.
+        after.update({k:row[k] for k in ANA_CATALOG_FIELDS if k in row and row[k] is not None})
+        prior = max((cut for cut in point['history'] if cut < today), default=data['meta']['anaDate'])
+        point['previous'] = point['history'][prior]
+        point.update(current=after, currentSource='ana_feature_server', currentSourceDate=today)
+        point['history'][today] = copy.deepcopy(after)
+    data['anaCatalog'] = {'url':url, 'queriedAt':dt.datetime.now(LIMA).isoformat(timespec='seconds'),
+        'records':len(rows), 'latestObservation':max(observation_dates),
+        'encoding':'gzip-base64', 'originalGzip':pack(raw)}
+    data['meta'].update(anaPreviousDate=max((c for c in data['meta']['anaCuts'] if c < today), default=data['meta']['anaDate']),
+        anaDate=today, anaCuts=sorted(set(data['meta']['anaCuts']+[today]), reverse=True))
+    return {'records':len(rows), 'updatedStates':len(matches), 'latestObservation':max(observation_dates), 'url':url}
+
+
+def update_ana(data, today):
+    results = {}; errors = {}
+    # Each source commits only its validated candidate; the other source still
+    # runs on failure. Last valid catalog attributes survive report-only runs.
+    for name, fn in [('reports', update_ana_reports), ('catalog', update_ana_catalog)]:
+        candidate = copy.deepcopy(data)
+        try:
+            result = fn(candidate, today)
+            data.clear(); data.update(candidate); results[name] = result
+        except Exception as exc:
+            errors[name] = str(exc)
+    if not results: raise ValueError('ANA: '+dumps(errors))
+    reports = results.get('reports', {}); catalog = results.get('catalog', {})
+    dates = [r['latestObservation'] for r in results.values() if r.get('latestObservation')]
+    return {**reports, 'cut':data['meta']['anaDate'], 'records':reports.get('records', catalog.get('records', 0)),
+        'updatedStates':catalog.get('updatedStates', reports.get('updatedStates', 0)),
+        'partial':bool(errors) or (not catalog and reports.get('partial', False)),
+        'latestObservation':max(dates), 'catalog':{'state':'ok', **catalog} if catalog else {'state':'error', 'error':errors['catalog']},
+        'reports':{'state':'ok', **reports} if reports else {'state':'error', 'error':errors['reports']},
+        'sourceErrors':errors}
 
 
 def rain_dates(page):

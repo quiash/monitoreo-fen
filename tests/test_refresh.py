@@ -57,7 +57,7 @@ class RefreshTests(unittest.TestCase):
             general.append({'CODIGO_INTERVENCION':code,'DECRETO_URGENCIA':'D.S N° 164-2026-EF','ESTADO_INTERVENCION':'Ejecutado'})
         data['ana'].append({'id':'missing','current':{'CODIGO':'9999-2026-ANA-AAA.JZ-ALA.CH','DECRETO':'D.S N° 164-2026-EF','ESTADO':'En Ejecución'},'previous':{'ESTADO':'Por Ejecutar'},'history':{'2026-10-27':{'ESTADO':'Por Ejecutar'}},'diary':[]})
         def response(rows):return {'success':True,'timestamp':'2026-11-11T12:00:00Z','data':[{'filas':rows,'totalFilas':len(rows)}]}
-        with patch.object(m,'get_json',side_effect=[response(rows),response(general)]):m.update_ana(data,'2026-11-11')
+        with patch.object(m,'get_json',side_effect=[response(rows),response(general)]):m.update_ana_reports(data,'2026-11-11')
         missing=data['ana'][-1]
         for point in data['ana']:
             self.assertTrue(set(data['meta']['anaCuts']) <= set(point['history']))
