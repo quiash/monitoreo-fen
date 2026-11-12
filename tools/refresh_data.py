@@ -338,10 +338,51 @@ ANA_CATALOG_FIELDS = {
 }
 
 
+ANA_CATALOG_BATCH_SIZE = 96
+ANA_CATALOG_TIMEOUT = 30
+ANA_CATALOG_ATTEMPTS = 2
+
+
+def fetch_ana_catalog():
+    """Download stable object-ID batches; never accept a partial inventory."""
+    def request(params):
+        url = ANA_CATALOG + '?' + urlencode({'f':'json', **params})
+        raw = json.loads(fetch(url, timeout=ANA_CATALOG_TIMEOUT, retries=ANA_CATALOG_ATTEMPTS))
+        if raw.get('error') or raw.get('exceededTransferLimit'):
+            raise ValueError('Catálogo ANA con error o respuesta truncada')
+        return raw
+
+    inventory = request({'where':'1=1', 'returnIdsOnly':'true'})
+    ids = inventory.get('objectIds')
+    field = inventory.get('objectIdFieldName')
+    if not isinstance(ids, list) or len(ids) != 536 or any(type(i) is not int for i in ids) or len(set(ids)) != len(ids):
+        raise ValueError('Inventario de IDs ANA incompleto o distinto de 536')
+    if not isinstance(field, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', field):
+        raise ValueError('Campo de identidad ArcGIS ANA no válido')
+    ids = sorted(ids)
+    fields = sorted(ANA_CATALOG_FIELDS | {field, 'IDE_INTERVENCION', 'IDPC', 'CODIGO', 'DECRETO', 'nombdep', 'nombprov', 'nombdistri'})
+    batches = [ids[i:i+ANA_CATALOG_BATCH_SIZE] for i in range(0, len(ids), ANA_CATALOG_BATCH_SIZE)]
+    def download(batch):
+        raw = request({'objectIds':','.join(map(str, batch)), 'outFields':','.join(fields), 'returnGeometry':'false'})
+        features = raw.get('features')
+        if not isinstance(features, list) or len(features) != len(batch):
+            raise ValueError('Bloque de catálogo ANA incompleto')
+        received = [feature.get('attributes', {}).get(field) for feature in features]
+        if any(type(i) is not int for i in received) or len(set(received)) != len(received) or set(received) != set(batch):
+            raise ValueError('IDs distintos o duplicados en bloque de catálogo ANA')
+        return features
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        pages = list(pool.map(download, batches))
+    return {'objectIdFieldName':field, 'features':[feature for page in pages for feature in page],
+            'downloadMode':'object_id_batches', 'batchCount':len(batches),
+            'batchSize':ANA_CATALOG_BATCH_SIZE, 'requestTimeoutSeconds':ANA_CATALOG_TIMEOUT,
+            'requestAttempts':ANA_CATALOG_ATTEMPTS}
+
+
 def update_ana_catalog(data, today):
     params = {'where':'1=1', 'outFields':'*', 'returnGeometry':'false', 'f':'json'}
     url = ANA_CATALOG + '?' + urlencode(params)
-    raw = json.loads(fetch(url, timeout=20, retries=1))
+    raw = fetch_ana_catalog()
     if raw.get('error') or raw.get('exceededTransferLimit'):
         raise ValueError('Catálogo ANA con error o respuesta truncada')
     rows = [f.get('attributes', {}) for f in raw.get('features', [])]
@@ -385,7 +426,8 @@ def update_ana_catalog(data, today):
         'encoding':'gzip-base64', 'originalGzip':pack(raw)}
     data['meta'].update(anaPreviousDate=max((c for c in data['meta']['anaCuts'] if c < today), default=data['meta']['anaDate']),
         anaDate=today, anaCuts=sorted(set(data['meta']['anaCuts']+[today]), reverse=True))
-    return {'records':len(rows), 'updatedStates':len(matches), 'latestObservation':max(observation_dates), 'url':url}
+    return {'records':len(rows), 'updatedStates':len(matches), 'latestObservation':max(observation_dates), 'url':url,
+        **{k:raw[k] for k in ['downloadMode','batchCount','batchSize','requestTimeoutSeconds','requestAttempts'] if k in raw}}
 
 
 def update_ana(data, today):

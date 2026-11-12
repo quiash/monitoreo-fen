@@ -46,7 +46,7 @@ jobs:
       - name: Publicar estado COEN
         run: bash tools/publish_updates.sh
       - name: Consultar ANA
-        timeout-minutes: 5
+        timeout-minutes: 10
         continue-on-error: true
         run: python tools/refresh_data.py --only ana
       - name: Publicar actualización ANA
