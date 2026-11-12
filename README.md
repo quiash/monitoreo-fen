@@ -1,88 +1,39 @@
 # Monitoreo FEN 26/27
 
-Visor de emergencias e intervenciones preventivas en Perú. Incluye COEN, puntos críticos ANA, barreras, ríos, lluvia observada e intensidad de lluvia respecto del histórico PISCOp.
+Visor de emergencias e intervenciones preventivas en el Perú.
 
-El visor carga una base histórica y una actualización incremental por fuente. OpenStreetMap es el fondo predeterminado y no requiere clave. Los botones Satélite (Esri World Imagery) y Sentinel-2 (EOX, mosaico 2024) tampoco requieren clave. MapTiler queda como opción avanzada.
+**[Abrir visor](https://quiash.github.io/monitoreo-fen/)**
 
-## Actualización automática
+## Información disponible
 
-El workflow **Actualizar datos FEN** consulta las fuentes cada tres horas (minuto 23; GitHub puede retrasar las ejecuciones). También puede iniciarse en **Actions → Actualizar datos FEN → Run workflow**. Lluvia y ríos utilizan el conector privado mediante `SENAMHI_BRIDGE_TOKEN`; no requieren una tarea activa de ChatGPT. Véase [conector SENAMHI](docs/SENAMHI_BRIDGE.md).
+- Emergencias y reportes de COEN–INDECI.
+- Puntos críticos e intervenciones de la ANA, con seguimiento de avances.
+- Precipitación observada y registros de ríos del SENAMHI.
+- Comparación de lluvias con los percentiles históricos PISCOp de 1991–2025.
 
-- **ANA:** consulta el catálogo oficial FeatureServer de los 536 puntos para actualizar atributos, estado y avance acumulado por ficha; consulta además el reporte general y el diario para conservar series por norma y periodo. Cruza ID de intervención, IDPC, código, territorio y norma antes de actualizar. Las fechas de avance se conservan como publicadas; el corte de consulta no significa que todas las fichas hayan avanzado ese día. Los totales repetidos `AVANCE_ACUMULADO_*` y `*_ATENDIDOS` no se suman por fila. Los costos del catálogo ANA no se presentan como PIM o devengado MEF. Ambas consultas se conservan por separado y una fuente fallida mantiene sus últimos datos válidos. Un cambio del universo de 536 o una respuesta truncada requiere conciliación; no se alteran los catálogos 94/12.
-- **COEN:** conserva la consulta GeoJSON de los últimos 30 días y el historial de emergencias. Además, consulta las últimas tres páginas del portal oficial INDECI en cada ejecución y conserva un catálogo acumulativo de reportes, accesible en **Fuentes y notas → Reportes recientes INDECI**. Descarga hasta seis PDF pendientes por ejecución, verifica su formato y guarda su hash y el texto de hasta ocho páginas; los enlaces oficiales permiten consultar el documento completo. Los códigos SINPAD extraídos son candidatos pendientes de conciliación. La fecha del título se registra como publicación, sin asignarla como ocurrencia. Los documentos no se cuentan como emergencias nuevas, no incorporan coordenadas ni cifras de daños y no adelantan el corte del mapa. Si la API falla pero el portal responde, el estado es parcial: documentación reciente disponible y última base cartográfica válida conservada. La cobertura del catálogo empieza con las páginas consultadas; no representa todo el histórico del portal.
-- **Lluvia:** descarga estaciones y superficie oficial SENAMHI; la fecha proviene de la publicación, con acumulados 07:00–07:00 hora Perú. Recupera días faltantes disponibles y conserva los anteriores. Los percentiles se calculan con la referencia PISCOp existente, cuya cobertura sigue limitada a octubre y noviembre.
-- **Ríos:** consulta hidrogramas diarios de las estaciones/variables del inventario. Conserva fechas, unidades y umbrales; una estación fallida retiene su última serie. El promedio diario no es una alerta oficial en tiempo real.
-- **94 adicionales y barreras:** conservan su catálogo original. No se declara actualización de avance cuando no existe una consulta automática validada.
+La consulta por fecha permite revisar el mapa, las fichas y las gráficas de seguimiento. El modo proyección amplía el área de consulta.
 
-Cada fuente se guarda y publica al terminar, sin esperar a las demás. Las consultas tienen tiempo máximo; una interrupción conserva las fuentes que ya terminaron.
+## Actualización
 
-Los errores se muestran en **Fuentes y notas → Estado de actualización**. Un intento fallido no cambia el corte de esa fuente. `data/status.json` registra intentos y últimos éxitos; `data/live.json` contiene las diferencias comprimidas respecto de la base. No mezclar partes de diferentes bases.
+Las fuentes se consultan cada tres horas. La fecha de corte y el estado de cada consulta figuran en «Fuentes y notas». Si un servicio no responde, se conserva su última información válida.
 
-El workflow solicita explícitamente una publicación Pages después de guardar los datos, porque los commits hechos con `GITHUB_TOKEN` no activan por sí solos una nueva publicación. Mantener **Settings → Pages → Deploy from a branch → main → /(root)**.
+Los 94 puntos adicionales y las barreras dinámicas mantienen el último catálogo disponible. La referencia histórica PISCOp permanece fija hasta su próxima revisión.
 
-OpenStreetMap se usa sólo para visualización interactiva, con atribución y caché normal del navegador; no se descargan teselas en los procesos automáticos ni se permite descarga masiva para uso offline.
+## Alcance
 
-## Publicar la web
+Las fechas y la cobertura varían según la fuente. Los percentiles de lluvia son una comparación histórica; no constituyen una alerta oficial ni equivalen al SPI.
 
-1. En este repositorio abre **Settings → Pages**.
-2. En **Source**, selecciona **Deploy from a branch**.
-3. Selecciona **main** y **/(root)**, y pulsa **Save**.
-4. Espera a que termine el despliegue. La dirección será https://quiash.github.io/monitoreo-fen/.
+## Documentación
 
-No necesitas instalar programas. GitHub Pages sirve archivos estáticos; esta configuración vuelve a publicar los cambios que se suban a `main`.
+- [Operación y publicación](docs/OPERACION.md)
+- [Comparación de precipitaciones](docs/PISCOP.md)
+- [Conector SENAMHI](docs/SENAMHI_BRIDGE.md)
 
-## Actualizar desde el navegador
-
-Abre https://quiash.github.io/monitoreo-fen/actualizar.html y selecciona una versión nueva del HTML portable del mapa que ya contenga los datos actualizados. La herramienta prepara un ZIP del sitio: descomprímelo y sube sus archivos y carpetas con **Add file → Upload files** en GitHub. No selecciones el ZIP como si fuera el sitio.
-
-Este procedimiento publica una nueva base ya preparada; no realiza las consultas de ANA, COEN o SENAMHI. La consulta periódica se ejecuta mediante el workflow descrito arriba. Una nueva base portable debe corresponder al corte correcto de cada fuente.
-
-## Archivos
-
-- `index.html`: estructura del visor.
-- `assets/`: estilos, motor cartográfico y aplicación.
-- `data/manifest.json`: fecha, referencia y lista de archivos de la base.
-- `data/base-*.txt`: partes de la base comprimida, sin pérdida de información.
-- `data/reference.json`: referencia histórica PISCOp.
-- `actualizar.html`: preparación local de una actualización para subir desde el navegador.
-- `tools/build_site.py`: alternativa opcional para reconstruir el sitio con Python estándar.
-
-No edites ni combines manualmente partes de distintas versiones de `data/base-*.txt`. El manifiesto y todas las partes deben corresponder a la misma actualización.
-
-## Datos y método
-
-Se conserva la base y el historial del HTML original. PISCOp v3.0 cubre 1981–2025; la referencia del visor utiliza octubre y noviembre de 1991–2020. La referencia incluida corresponde al cálculo inicial sobre días húmedos; el cálculo adicional de todos los días para zonas secas sigue pendiente de incorporarse. No es SPI ni una alerta oficial. Las fuentes y limitaciones completas figuran en el visor.
-
-## Comprobación local opcional
+## Verificación local
 
 ```sh
-python3 tools/validate_site.py
-python3 -m http.server 8000
+python tools/validate_site.py
+python -m http.server 8000
 ```
 
-Después abre http://localhost:8000. La web carga sus datos mediante HTTP; no debe abrirse haciendo doble clic en `index.html`. Para compartir un único archivo utiliza la copia portable generada por el visor.
-
-## Fondos satelitales
-
-- **Satélite:** Esri World Imagery, imágenes de distintas fechas y resoluciones según zona. Mantener los créditos de Esri y sus proveedores y respetar sus [condiciones](https://www.esri.com/en-us/legal/terms/web-site-service).
-- **Sentinel-2:** Sentinel-2 cloudless 2024 de EOX, resolución aproximada de 10 m. Servicio gratuito para uso no comercial, con atribución CC BY-NC-SA 4.0. [Condiciones EOX](https://eox.at/2025/03/sentinel-2-cloudless-2024/).
-
-Son fondos de referencia, no imágenes actuales de la emergencia. No se descargan ni almacenan teselas en las consultas de datos. La disponibilidad depende de cada proveedor.
-
-## Conectividad de las fuentes y ejecución alternativa
-
-Comprobación del 11/11/2026: el dominio `coen.indeci.gob.pe` devuelve NXDOMAIN en DNS público. El visor oficial INDECI sigue apuntando a ese dominio. No se sustituye por la capa SINPAD cuya última fecha observada es mayo de 2026. La actualización COEN se reanudará cuando su servicio vuelva a responder o se valide un reemplazo vigente.
-
-SENAMHI responde desde algunas redes, pero las conexiones HTTPS agotaron su tiempo desde runners GitHub de Windows, Linux x64 y Linux ARM. Cambiar de mapa de fondo no resuelve el acceso a estas fuentes.
-
-El workflow permite ejecutar las mismas consultas y publicaciones desde otro servidor mediante la variable de repositorio **FEN_RUNNER**. Sin esa variable mantiene `ubuntu-latest` y la actualización ANA operativa.
-
-Para un servidor Linux con acceso comprobado a SENAMHI:
-
-1. En **Settings → Actions → Runners → New self-hosted runner**, registrar el servidor siguiendo los comandos que muestra GitHub. No publicar su token. Añadir la etiqueta `fen` y habilitar el servicio para que arranque automáticamente.
-2. Instalar Python 3.12, Git y Bash en ese servidor; comprobar acceso HTTPS a `www.senamhi.gob.pe` e `idesep.senamhi.gob.pe`.
-3. En **Settings → Secrets and variables → Actions → Variables**, crear `FEN_RUNNER` con valor `["self-hosted","Linux","fen"]`.
-4. Ejecutar **Actions → Actualizar datos FEN → Run workflow** y comprobar los cortes de lluvia y ríos en el visor.
-
-Usar un servidor dedicado de confianza: este repositorio es público y el runner ejecuta el código de `main`. No habilitar ejecución de contribuciones externas sin revisión. El equipo debe permanecer encendido. Esta opción está preparada pero no queda activa hasta registrar el servidor y configurar la variable. Eliminar la variable devuelve las consultas a GitHub.
-
+Abrir `http://localhost:8000`.
