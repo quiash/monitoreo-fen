@@ -341,3 +341,5 @@ body.editorial-view{height:100dvh;min-height:540px;display:flex;flex-direction:c
  .editorial-view .map-area.timeline-expanded{--timeline-height:184px}
  .editorial-view .timeline-expanded .histogram{height:56px}
 }
+@media(max-width:850px){.editorial-view .map-area.period-mode.timeline-expanded{--timeline-height:min(360px,calc(100dvh - 224px))}.editorial-view .period-mode.timeline-expanded .histogram{height:80px}}
+@media(max-width:850px) and (max-height:550px){.editorial-view .map-area.period-mode.timeline-expanded{--timeline-height:min(280px,calc(100dvh - 134px))}.editorial-view .period-mode.timeline-expanded .histogram{height:36px}}
