@@ -1,22 +1,33 @@
 'use strict';
+async function siteText(path){const response=await fetch(path,{cache:'no-cache'});if(!response.ok)throw Error('No se pudo cargar '+path+' ('+response.status+').');return response.text();}
+async function loadSourcePayload(manifest){
+ const chunks=new Array(manifest.parts.length);let cursor=0;
+ await Promise.all(Array.from({length:Math.min(4,manifest.parts.length)},async()=>{while(cursor<manifest.parts.length){const i=cursor++;chunks[i]=await siteText(manifest.parts[i]);}}));
+ const payload=chunks.join('');if(payload.length!==manifest.payloadCharacters)throw Error('La base descargada está incompleta.');
+ document.getElementById('embeddedData').textContent=JSON.stringify({encoding:'gzip-base64',data:payload});
+ try{document.getElementById('liveData').textContent=await siteText('data/live.json');}catch(e){window.__siteUpdateWarning='No se pudo cargar la actualización; se muestra la base disponible.';}
+ window.__fullSourceReady=true;
+}
+async function ensureFullSiteData(){
+ if(!window.__siteManifest||window.__fullSourceReady)return;
+ if(!window.__fullSourcePromise)window.__fullSourcePromise=loadSourcePayload(window.__siteManifest).catch(error=>{window.__fullSourcePromise=null;throw error;});
+ await window.__fullSourcePromise;
+}
 async function prepareWebData(){
  const embedded=document.getElementById('embeddedData');
  try{if(JSON.parse(embedded.textContent||'null')?.data)return;}catch{}
- const get=async path=>{const response=await fetch(path,{cache:'no-cache'});if(!response.ok)throw Error('No se pudo cargar '+path+' ('+response.status+').');return response.text();};
- const manifest=JSON.parse(await get('data/manifest.json'));
+ const manifest=JSON.parse(await siteText('data/manifest.json'));
  if(manifest.schema!=='fen-site/v1'||!Array.isArray(manifest.parts)||!manifest.parts.length)throw Error('Manifiesto de datos no válido.');
- const text=new Array(manifest.parts.length);let cursor=0;
- await Promise.all(Array.from({length:Math.min(4,manifest.parts.length)},async()=>{while(cursor<manifest.parts.length){const i=cursor++;text[i]=await get(manifest.parts[i]);}}));
- const payload=text.join('');if(payload.length!==manifest.payloadCharacters)throw Error('La base descargada está incompleta.');
- embedded.textContent=JSON.stringify({encoding:'gzip-base64',data:payload});
- let reference=JSON.parse(await get(manifest.reference));
- if(reference?.encoding==='gzip-base64-parts'){const chunks=await Promise.all(reference.parts.map(get));reference={encoding:'gzip-base64',data:chunks.join('')};}
+ window.__siteManifest=manifest;window.__siteAssets=manifest.assets;window.__siteSnapshot=manifest.snapshotDate;
+ const [statusText,view]=await Promise.all([siteText('data/status.json').catch(()=>''),manifest.runtime?siteText(manifest.runtime).then(JSON.parse).catch(()=>null):Promise.resolve(null)]);
+ let status=null;try{status=JSON.parse(statusText);}catch{}
+ if(view?.schema==='fen-view/v1'&&view.encoding==='gzip-base64'&&view.data&&view.baseSha256===manifest.payloadSha256&&status?.checkedAt&&view.checkedAt===status.checkedAt){
+  embedded.textContent=JSON.stringify({encoding:'gzip-base64',data:view.data});document.getElementById('liveData').textContent='null';window.__fullSourceReady=false;
+ }else await loadSourcePayload(manifest);
+ document.getElementById('sourceStatusData').textContent=statusText||'null';
+ let reference=JSON.parse(await siteText(manifest.reference));
+ if(reference?.encoding==='gzip-base64-parts'){const chunks=await Promise.all(reference.parts.map(siteText));reference={encoding:'gzip-base64',data:chunks.join('')};}
  document.getElementById('rainClimateReference').textContent=JSON.stringify(reference);
- window.__siteAssets=manifest.assets;
- window.__siteSnapshot=manifest.snapshotDate;
- for(const [path,id] of [['data/live.json','liveData'],['data/status.json','sourceStatusData']]){
-  try{document.getElementById(id).textContent=await get(path);}catch(error){console.warn(error.message);window.__siteUpdateWarning='No se pudo cargar la actualización; se muestra la base disponible.';}
- }
 }
 function applySitePatch(target,patch){
  if(!patch||typeof patch!=='object'||Array.isArray(patch))return patch;
@@ -82,11 +93,12 @@ function renderSourceStatus(data){
 }
 async function createPortableSiteTemplate(){
  if(!window.__siteAssets)return;
+ await ensureFullSiteData();
  const values=new Map();await Promise.all(window.__siteAssets.map(async path=>{const response=await fetch(path,{cache:'no-cache'});if(!response.ok)throw Error('No se pudo preparar la copia portable.');values.set(path,await response.text());}));
  let html=window.__TERRITORIO_TEMPLATE__;
  html=html.replace(/<script([^>]*?)\s+src="([^"]+)"([^>]*)>\s*<\/script>/g,(tag,before,path,after)=>values.has(path.split('?')[0])?'<script'+before+after+'>'+values.get(path.split('?')[0]).replace(/<\/script/gi,'<\\/script')+'<'+ '/script>':tag);
  html=html.replace(/<link\s+rel="stylesheet"\s+href="([^"]+)"\s*\/?\s*>/g,(tag,path)=>values.has(path.split('?')[0])?'<style>'+values.get(path.split('?')[0])+'</style>':tag);
  for(const id of ['embeddedData','rainClimateReference','liveData','sourceStatusData']){const payload=document.getElementById(id).textContent.replace(/</g,'\\u003c');html=html.replace(new RegExp('(<script\\b[^>]*id="'+id+'"[^>]*>)[\\s\\S]*?(<\\/script\\s*>)'),(_,open,close)=>open+payload+close);}
- window.__TERRITORIO_TEMPLATE__=html;
+ window.__TERRITORIO_TEMPLATE__=html;window.__portablePrepared=true;
 }
 
