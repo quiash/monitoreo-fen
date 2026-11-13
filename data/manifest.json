@@ -42,5 +42,6 @@
     "assets/editorial.css",
     "assets/editorial.js",
     "assets/ana-status.js"
-  ]
+  ],
+  "runtime": "data/view.json"
 }
