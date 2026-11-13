@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/update-data.yml'
       - 'tools/refresh_data.py'
+      - 'tools/build_runtime_data.py'
       - 'tools/request_pages_build.py'
       - 'tools/publish_updates.sh'
       - 'tools/requirements-refresh.txt'
