@@ -40,6 +40,8 @@
     "assets/config.js",
     "assets/app.js",
     "assets/editorial.css",
-    "assets/editorial.js"
-  ]
+    "assets/editorial.js",
+    "assets/ana-status.js"
+  ],
+  "runtime": "data/view.json"
 }

@@ -1,0 +1,11 @@
+'use strict';
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const context={};vm.createContext(context);vm.runInContext(fs.readFileSync('assets/ana-status.js','utf8'),context);
+for(const state of ['Ejecutado','Culminado',' EJECUTADA ','Concluido'])assert.equal(context.anaOfficialState(state).completed,true);
+for(const state of ['En Ejecución','En Ejecucion','Por Ejecutar','Programado','Ejecutado parcialmente','',null])assert.equal(context.anaOfficialState(state).completed,false);
+assert.equal(context.anaStatusMatches('Culminado','completed'),true);
+assert.equal(context.anaStatusMatches('En Ejecucion','executing'),true);
+assert.equal(context.anaStatusMatches('Programado','pending'),true);
+assert.equal(context.anaStatusMatches('En Ejecución','completed'),false);
+assert.equal(context.anaOfficialState('Culminado').color,'#2f7352');
+console.log('ANA: estados oficiales normalizados; sin inferir culminación a partir del avance.');

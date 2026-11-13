@@ -26,6 +26,7 @@ function setEditorialRecords(open,pin=false){
 }
 function syncEditorial(){
  if(!$('presentationDate'))return;
+ $('anaCutLegend').hidden=anaTemporal()||!$('layerAna').checked;
  document.querySelector('.map-area').classList.toggle('period-mode',$('coenMode').value==='all');
  const day=$('dateEnd').value;$('presentationDate').textContent=day?fullDate(day):'';
  document.querySelectorAll('[data-view]').forEach(button=>button.setAttribute('aria-pressed',String(editorialViews[button.dataset.view].every((v,i)=>Boolean(v)===$(editorialLayerIds[i]).checked))));
