@@ -263,6 +263,7 @@ def update_ana_reports(data, today):
     catalog = {}
     for point in data['ana']: catalog.setdefault(code(point['current']['CODIGO']), []).append(point)
     matched = current_legal = previous_only = updated = general_matched = 0; excluded = []; matched_dates = []
+    export_totals = []
     fields = {'META':'META_KM','AVANCEKM':'TOTAL_AVANCE_KM','AVANCEKMPOR':'TOTAL_PCT_AVANCE_KM','VOLUMEN_M3':'META_M3','AVANCEDESCOLMA':'TOTAL_AVANCE_M3','AVANCEDESCOLMAPOR':'TOTAL_PCT_AVANCE_M3','POB':'HABITANTES','VIVIENDAS':'VIVIENDA','CULTIVO':'AREA_CULTIVO'}
     for point in data['ana']:
         point.setdefault('history', {}).setdefault(data['meta']['anaDate'], copy.deepcopy(point['current']))
@@ -275,7 +276,23 @@ def update_ana_reports(data, today):
         if len(catalog[key]) != 1: continue
         legal = norm(point['current'].get('DECRETO'))
         candidates = [r for r in current.get(key, []) if norm(r.get('DECRETO_URGENCIA')) == legal]
-        if len(candidates) == 1: general_matched += 1
+        if len(candidates) == 1:
+            general_matched += 1
+            report = candidates[0]
+            period = str(report.get('PERIODO') or '')
+            dates = [
+                row['FECHA_INTERVENCION'][:10] for _, row in grouped.get(key, [])
+                if norm(row.get('DECRETO_URGENCIA')) == legal
+                and str(row.get('PERIODO') or '') == period
+            ]
+            if dates and period and max(dates) <= today:
+                totals = {target: number(report.get(source)) for target, source in fields.items()
+                          if target in ('META', 'AVANCEKM', 'VOLUMEN_M3', 'AVANCEDESCOLMA')}
+                if all(value is not None and value >= 0 for value in totals.values()):
+                    export_totals.append({
+                        'id': str(point['id']), 'code': key, 'legal': legal, 'period': period,
+                        'date': max(dates), 'state': report.get('ESTADO_INTERVENCION'), 'totals': totals,
+                    })
         if len(candidates) == 1 and point.get('currentSource') != 'ana_feature_server':
             r = candidates[0]; before = copy.deepcopy(point['current']); after = copy.deepcopy(before)
             for target, source in fields.items():
@@ -315,6 +332,7 @@ def update_ana_reports(data, today):
     if matched < 250 or general_matched < 250: raise ValueError(f'Vinculación ANA insuficiente: {matched} diarios, {updated} estados')
     diary = data['anaDiary']
     diary.update(sourceFilename='API_ANA_avancediario_'+today+'.json',sourceDate=today,queryTimestamp=daily_raw.get('timestamp'),sourceRowCount=len(daily),matchedPoints=matched,currentLegalPoints=current_legal,unmatchedPoints=len(data['ana'])-matched,previousOnlyPoints=previous_only,futureExcluded=excluded,originalGzip=pack(daily_raw))
+    diary['exportTotals'] = export_totals
     diary.setdefault('snapshots', {})[today] = {'filename':diary['sourceFilename'],'timestamp':daily_raw.get('timestamp'),'originalGzip':diary['originalGzip']}
     data['meta'].update(anaPreviousDate=max((cut for cut in data['meta']['anaCuts'] if cut < today), default=data['meta']['anaDate']),anaDate=today,anaCuts=sorted(set(data['meta']['anaCuts']+[today]),reverse=True))
     return {'cut':today,'records':len(daily),'matched':matched,'updatedStates':updated,'partial':updated<len(data['ana']),'latestObservation':max(matched_dates),'url':ANA+'avancediario'}

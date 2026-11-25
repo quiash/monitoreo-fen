@@ -10,14 +10,17 @@ from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 
-from refresh_data import ANA_CATALOG, LIMA, ROOT, dumps, fetch, load_base, load_live, norm, unpack
+from refresh_data import (
+    ANA_CATALOG, LIMA, ROOT, atomic_json, code, dumps, fetch, load_base, load_live, norm, number, pack, unpack,
+)
 from urllib.parse import urlencode
 
 OUTPUT = ROOT / 'data' / 'ana-export'
 MANIFEST = OUTPUT / 'latest.json'
+SNAPSHOT = OUTPUT / 'snapshot.json'
 GEOMETRY = ROOT / 'tools' / 'ana-departamentos.geojson'
 FIELDS = (
-    'IDE_INTERVENCION', 'IDPC', 'SECTOR', 'nombdep', 'nombprov', 'nombdistri', 'DECRETO',
+    'IDE_INTERVENCION', 'IDPC', 'CODIGO', 'SECTOR', 'nombdep', 'nombprov', 'nombdistri', 'DECRETO',
     'ESTADO', 'META', 'AVANCEKM', 'VOLUMEN_M3', 'AVANCEDESCOLMA', 'COSTO_DE_LA_ACTIVIDAD',
     'FEC_AVANCE',
 )
@@ -26,6 +29,8 @@ COLORS = ('DAE9F8', 'FCE8D7', 'FFF2CE', 'E0EEDC')
 MOVEMENT = {'H': 'AVANCEKM', 'I': 'META', 'K': 'COSTO_DE_LA_ACTIVIDAD',
             'L': 'VOLUMEN_M3', 'M': 'AVANCEDESCOLMA'}
 SOURCE = 'ANA–SNIRH'
+REPORT_SOURCE = 'ANA–SNIRH (FeatureServer y reportes de avance)'
+PROGRESS = ('META', 'AVANCEKM', 'VOLUMEN_M3', 'AVANCEDESCOLMA')
 BLUE = '18365C'
 MAP_COLORS = {
     'TUMBES': '#5D8AA8', 'PIURA': '#83B282', 'LAMBAYEQUE': '#A98AB0',
@@ -135,13 +140,13 @@ def group_rows(rows, key):
     return groups
 
 
-def details(rows, cut, path):
+def details(rows, cut, path, source):
     from openpyxl.styles import PatternFill
     from openpyxl.utils import get_column_letter
 
     book, sheet = workbook('Tabla Detallada')
     header(sheet, 1, 14, 'ANA | PUNTOS CRÍTICOS', bg=BLUE, fg='FFFFFF', bold=True, height=27)
-    header(sheet, 3, 14, f'Fuente: {SOURCE} · Último avance el {cut:%d/%m/%Y}')
+    header(sheet, 3, 14, f'Fuente: {source} · Último avance el {cut:%d/%m/%Y}')
     counts = Counter(row['category'] for row in rows)
     header(sheet, 4, 14, f'536 PUNTOS · {counts[CATEGORIES[1]]} POR EJECUTAR · '
            f'{counts[CATEGORIES[2]]} SIN AVANCE EN KM · {counts[CATEGORIES[0]]} CON AVANCE EN KM · '
@@ -219,13 +224,13 @@ def details(rows, cut, path):
     book.save(path)
 
 
-def summary(rows, cut, path):
+def summary(rows, cut, path, source):
     from openpyxl.utils import get_column_letter
 
     book, sheet = workbook('Por departamento')
     header(sheet, 1, 17, 'ANA | PUNTOS CRÍTICOS POR DEPARTAMENTO',
            bg=BLUE, fg='FFFFFF', bold=True, height=26)
-    header(sheet, 2, 17, f'Fuente: {SOURCE} · Último avance el {cut:%d/%m/%Y}')
+    header(sheet, 2, 17, f'Fuente: {source} · Último avance el {cut:%d/%m/%Y}')
     sheet.merge_cells('A3:A4')
     sheet['A3'] = 'DEPARTAMENTO'
     style_row(sheet, 3, 17, bg=BLUE, fg='FFFFFF', bold=True)
@@ -262,7 +267,7 @@ def summary(rows, cut, path):
     book.save(path)
 
 
-def department_map(rows, cut, path):
+def department_map(rows, cut, path, source):
     import matplotlib
     matplotlib.use('Agg')
     from matplotlib import font_manager, pyplot as plt
@@ -338,7 +343,7 @@ def department_map(rows, cut, path):
         ('Avance físico', national_pct),
     )):
         fig.text(.24, .135 - idx * .027, f'{label}: {val}', fontsize=13)
-    fig.text(.05, .025, f'Fuente: ANA–SNIRH · Último avance registrado: {cut:%d/%m/%Y}.\n'
+    fig.text(.05, .025, f'Fuente: {source} · Último avance registrado: {cut:%d/%m/%Y}.\n'
              'Límites departamentales referenciales: juaneladio/peru-geojson (MPL 2.0).',
              fontsize=8, color='#64748B')
     fig.savefig(path, dpi=600, facecolor='white')
@@ -362,14 +367,71 @@ def latest_ana_status():
     return ana if ana.get('lastAttempt') != prior_ana.get('lastAttempt') else None
 
 
-def generate(raw, force=False):
+def observation(row):
+    value = row['FEC_AVANCE']
+    return datetime.strptime(value, '%d/%m/%Y').date() if value else date.min
+
+
+def reconcile(previous, catalog, reports, inventory, today):
+    """Retain the most recent comparable progress for each official ficha."""
+    if not previous and not catalog:
+        raise ValueError('No hay inventario oficial validado para completar el reporte.')
+    points = {}
+    for raw in (previous, catalog):
+        if not raw:
+            continue
+        catalog_rows(raw, inventory, today)
+        for feature in raw['features']:
+            row = {field: feature['attributes'][field] for field in FIELDS}
+            ident = str(row['IDE_INTERVENCION'])
+            record = {'attributes': row}
+            prior = points.get(ident)
+            if raw is previous and 'reportPeriod' in feature:
+                record['reportPeriod'] = feature['reportPeriod']
+            if prior and observation(row) < observation(prior['attributes']):
+                for field in (*PROGRESS, 'ESTADO', 'FEC_AVANCE'):
+                    row[field] = prior['attributes'][field]
+                if 'reportPeriod' in prior:
+                    record['reportPeriod'] = prior['reportPeriod']
+            points[ident] = record
+
+    for report in reports:
+        point = points.get(report['id'])
+        if not point:
+            continue
+        row = point['attributes']
+        if not report['legal'] or (report['code'], report['legal']) != (code(row['CODIGO']), norm(row['DECRETO'])):
+            continue
+        day = date.fromisoformat(report['date'])
+        published = observation(row)
+        same_period = point.get('reportPeriod') == report['period']
+        if day > today or day < published or (day == published and not same_period):
+            continue
+        state = report['state']
+        totals = {field: number(report['totals'].get(field)) for field in PROGRESS}
+        if norm(state) not in ('EJECUTADO', 'POREJECUTAR', 'ENEJECUCION') or any(
+            value is None or value < 0 for value in totals.values()
+        ):
+            continue
+        row.update(totals, ESTADO=state, FEC_AVANCE=day.strftime('%d/%m/%Y'))
+        point['reportPeriod'] = report['period']
+    return {'features': [points[key] for key in sorted(points)]}
+
+
+def generate(catalog, reports=(), *, force=False):
     inventory = {(str(point['id']), str(point['current']['IDPC'])) for point in load_base()['ana']}
-    rows, cut = catalog_rows(raw, inventory, datetime.now(LIMA).date())
-    digest = hashlib.sha256(dumps(rows).encode()).hexdigest()
+    today = datetime.now(LIMA).date()
+    baseline = unpack(json.loads(SNAPSHOT.read_text())['data']) if SNAPSHOT.exists() else None
+    snapshot = reconcile(baseline, catalog, reports, inventory, today)
+    rows, cut = catalog_rows(snapshot, inventory, today)
+    source = REPORT_SOURCE if any('reportPeriod' in item for item in snapshot['features']) else SOURCE
+    digest = hashlib.sha256(dumps([source, rows]).encode()).hexdigest()
     previous = json.loads(MANIFEST.read_text()) if MANIFEST.exists() else {}
     if previous.get('cut', '') > cut.isoformat():
         raise ValueError('La consulta ANA es anterior al corte publicado.')
     if not force and previous.get('digest') == digest:
+        if baseline != snapshot:
+            atomic_json(SNAPSHOT, {'encoding': 'gzip-base64', 'data': pack(snapshot)})
         print(f'Exportaciones ANA sin cambios ({cut}).')
         return
     products = {
@@ -381,12 +443,13 @@ def generate(raw, force=False):
     with TemporaryDirectory(prefix='fen-ana-', dir=OUTPUT.parent) as directory:
         tmp = Path(directory)
         for filename, create in products.values():
-            create(rows, cut, tmp / filename)
+            create(rows, cut, tmp / filename, source)
         for filename, _ in products.values():
             (tmp / filename).replace(OUTPUT / filename)
-        manifest = {'cut': cut.isoformat(), 'digest': digest, 'records': len(rows),
+        manifest = {'cut': cut.isoformat(), 'digest': digest, 'records': len(rows), 'source': source,
                     'files': {key: product[0] for key, product in products.items()}}
         (tmp / 'latest.json').write_text(dumps(manifest) + '\n', encoding='utf-8')
+        atomic_json(SNAPSHOT, {'encoding': 'gzip-base64', 'data': pack(snapshot)})
         (tmp / 'latest.json').replace(MANIFEST)
     print(f'Exportaciones ANA generadas: {cut}, {len(rows)} puntos.')
 
@@ -403,11 +466,17 @@ def main():
         if ana is None:
             return
         try:
-            if ana.get('catalog', {}).get('state') == 'ok':
-                raw = unpack(load_live()['anaCatalog']['originalGzip'])
-            else:
+            patch = load_live()
+            fresh = ana.get('lastAttempt') == ana.get('lastSuccess') and ana.get('state') in ('ok', 'partial')
+            reports = ()
+            raw = None
+            if fresh and ana.get('reports', {}).get('state') == 'ok':
+                reports = patch.get('anaDiary', {}).get('exportTotals', ())
+            if fresh and ana.get('catalog', {}).get('state') == 'ok':
+                raw = unpack(patch['anaCatalog']['originalGzip'])
+            if raw is None and not reports:
                 raw = read_catalog()
-            generate(raw)
+            generate(raw, reports)
         except (ValueError, TypeError, KeyError, OSError) as exc:
             if not MANIFEST.is_file():
                 raise
